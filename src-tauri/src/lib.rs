@@ -115,6 +115,60 @@ fn unstage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), Strin
     Ok(())
 }
 
+#[tauri::command]
+fn rename_branch(repo_path: String, old_name: String, new_name: String) -> Result<(), String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    let mut branch = repo.find_branch(&old_name, git2::BranchType::Local)
+        .map_err(|e| format!("Failed to find branch {}: {}", old_name, e))?;
+    
+    branch.rename(&new_name, false)
+        .map_err(|e| format!("Failed to rename branch to {}: {}", new_name, e))?;
+        
+    Ok(())
+}
+
+#[tauri::command]
+fn commit_changes(repo_path: String, message: String, amend: bool) -> Result<(), String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    let mut index = repo.index().map_err(|e| format!("Failed to open index: {}", e))?;
+    let tree_id = index.write_tree().map_err(|e| format!("Failed to write tree: {}", e))?;
+    let tree = repo.find_tree(tree_id).map_err(|e| format!("Failed to find tree: {}", e))?;
+    
+    let signature = repo.signature().map_err(|e| format!("Failed to get default signature: {}", e))?;
+    
+    if amend {
+        let head = repo.head().map_err(|e| format!("Failed to get HEAD for amend: {}", e))?;
+        let parent = head.peel_to_commit().map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?;
+        
+        parent.amend(Some("HEAD"), Some(&signature), Some(&signature), None, Some(&message), Some(&tree))
+            .map_err(|e| format!("Failed to amend commit: {}", e))?;
+    } else {
+        let parent_commit = match repo.head() {
+            Ok(head) => Some(head.peel_to_commit().map_err(|e| format!("Failed to peel HEAD: {}", e))?),
+            Err(_) => None, // Initial commit
+        };
+
+        let parents = match &parent_commit {
+            Some(c) => vec![c],
+            None => vec![],
+        };
+
+        repo.commit(Some("HEAD"), &signature, &signature, &message, &tree, &parents)
+            .map_err(|e| format!("Failed to create commit: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn get_last_commit_message(repo_path: String) -> Result<String, String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
+    let commit = head.peel_to_commit().map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?;
+    
+    Ok(commit.message().unwrap_or("").to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -125,7 +179,10 @@ pub fn run() {
             open_repository, 
             get_repo_status,
             stage_files,
-            unstage_files
+            unstage_files,
+            rename_branch,
+            commit_changes,
+            get_last_commit_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -262,6 +262,151 @@ body {
 .status-deleted { background: #ffeef0; color: #cb2431; }
 .status-other { background: #f1f8ff; color: #0366d6; }
 
+.clickable-branch {
+  position: relative;
+  display: inline-block;
+  cursor: context-menu;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  background-color: transparent;
+}
+
+.clickable-branch:hover {
+  background-color: #e8e8e8;
+}
+
+.context-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
+  border: 1px solid #ccc;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  border-radius: 4px;
+  min-width: 150px;
+  z-index: 2000;
+  margin-top: 5px;
+  padding: 5px 0;
+  display: block; /* We'll use the .hidden class to hide it */
+}
+
+.context-menu .menu-item {
+  padding: 8px 15px;
+  font-size: 13px;
+  font-weight: normal;
+  color: #333;
+}
+
+.context-menu .menu-item:hover {
+  background: #007aff;
+  color: white;
+}
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  min-width: 300px;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 8px;
+  margin: 10px 0;
+  box-sizing: border-box;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.commit-section {
+  margin-top: 20px;
+  border-top: 1px solid #eee;
+  padding-top: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#commit-subject {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+#commit-body {
+  width: 100%;
+  height: 100px;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-family: inherit;
+  resize: none;
+  font-size: 12px;
+}
+
+.commit-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+#char-count {
+  font-size: 11px;
+  color: #666;
+}
+
+.amend-label {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.primary-btn {
+  background: #007aff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.primary-btn:hover {
+  background: #0056b3;
+}
+
 .hidden {
   display: none !important;
 }

@@ -38,10 +38,30 @@
       <h2>Repository Details</h2>
       <p><strong>Name:</strong> <span id="display-name"></span></p>
       <p><strong>Path:</strong> <span id="display-path"></span></p>
-      <p><strong>Current Branch:</strong> <span id="display-branch"></span></p>
-    </div>
-  </div>
+      <p><strong>Current Branch:</strong> 
+        <span id="branch-container" class="clickable-branch">
+          <span id="display-branch"></span>
+          <div id="branch-menu" class="context-menu hidden">
+            <div class="menu-item" id="menu-rename-branch">Rename Branch...</div>
+          </div>
+        </span>
+      </p>
 
+      </div>
+      </div>
+
+      <!-- Rename Branch Modal -->
+      <div id="rename-modal" class="modal hidden">
+      <div class="modal-content">
+      <h3>Rename Branch</h3>
+      <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
+      <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
+      <div class="modal-actions">
+        <button id="cancel-rename-btn">Cancel</button>
+        <button id="confirm-rename-btn" class="primary-btn">Rename</button>
+      </div>
+      </div>
+      </div>
   <div class="changes-section">
     <div class="changes-column">
       <div class="column-header">
@@ -60,6 +80,17 @@
       <ul id="staged-list" class="file-list">
         <!-- Staged changes will be injected here -->
       </ul>
+      <div class="commit-section">
+        <input type="text" id="commit-subject" placeholder="Subject (max 72 chars)" maxlength="72">
+        <textarea id="commit-body" placeholder="Description (optional)..."></textarea>
+        <div class="commit-footer">
+          <span id="char-count">0 / 72</span>
+          <label class="amend-label">
+            <input type="checkbox" id="amend-checkbox"> Amend
+          </label>
+          <button id="commit-btn" class="primary-btn">Commit</button>
+        </div>
+      </div>
     </div>
   </div>
 

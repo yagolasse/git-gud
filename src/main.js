@@ -1,7 +1,7 @@
 const { invoke } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 
-let repositories = []; // Array of { path, name, current_branch }
+let repositories = []; // Array of { path, name, current_branch, head_shorthand }
 let activeTabIndex = -1;
 
 const STORAGE_KEY = "git-gud-repos";
@@ -14,6 +14,21 @@ const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
 const unstagedList = document.getElementById("unstaged-list");
 const stagedList = document.getElementById("staged-list");
+const branchContainer = document.getElementById("branch-container");
+const branchMenu = document.getElementById("branch-menu");
+const menuRenameBranch = document.getElementById("menu-rename-branch");
+
+const renameModal = document.getElementById("rename-modal");
+const oldBranchDisplay = document.getElementById("old-branch-name-display");
+const newBranchInput = document.getElementById("new-branch-name-input");
+const confirmRenameBtn = document.getElementById("confirm-rename-btn");
+const cancelRenameBtn = document.getElementById("cancel-rename-btn");
+
+const commitSubjectInput = document.getElementById("commit-subject");
+const commitBodyInput = document.getElementById("commit-body");
+const charCountDisplay = document.getElementById("char-count");
+const amendCheckbox = document.getElementById("amend-checkbox");
+const commitBtn = document.getElementById("commit-btn");
 
 function saveToStorage() {
   const paths = repositories.map(r => r.path);
@@ -111,6 +126,21 @@ async function setActiveTab(index) {
     displayPath.textContent = repo.path;
     displayBranch.textContent = repo.current_branch;
 
+    // Show/hide branch menu if head is available
+    if (!repo.head_shorthand) {
+      branchContainer.style.pointerEvents = "none";
+      branchContainer.style.color = "#666";
+    } else {
+      branchContainer.style.pointerEvents = "auto";
+      branchContainer.style.color = "inherit";
+    }
+
+    // Reset commit UI
+    commitSubjectInput.value = "";
+    commitBodyInput.value = "";
+    updateCharCount();
+    amendCheckbox.checked = false;
+
     // Fetch and render changes
     refreshChanges();
   }
@@ -138,7 +168,12 @@ async function refreshChanges() {
     currentStagedPaths = staged.map(s => s.path);
 
     if (unstaged.length === 0) unstagedList.innerHTML = "<li>No unstaged changes</li>";
-    if (staged.length === 0) stagedList.innerHTML = "<li>No staged changes</li>";
+    if (staged.length === 0) {
+      stagedList.innerHTML = "<li>No staged changes</li>";
+      commitBtn.disabled = true;
+    } else {
+      commitBtn.disabled = false;
+    }
 
     unstaged.forEach(file => unstagedList.appendChild(createFileItem(file, false)));
     staged.forEach(file => stagedList.appendChild(createFileItem(file, true)));
@@ -190,6 +225,96 @@ async function unstageFiles(filePaths) {
   }
 }
 
+async function handleRenameBranch() {
+  const repo = repositories[activeTabIndex];
+  if (!repo || !repo.head_shorthand) return;
+
+  oldBranchDisplay.textContent = repo.head_shorthand;
+  newBranchInput.value = repo.head_shorthand;
+  renameModal.classList.remove("hidden");
+  newBranchInput.focus();
+  branchMenu.classList.add("hidden"); // Close the menu
+}
+
+async function confirmRename() {
+  const repo = repositories[activeTabIndex];
+  const newName = newBranchInput.value.trim();
+  
+  if (!newName || newName === repo.head_shorthand) {
+    renameModal.classList.add("hidden");
+    return;
+  }
+
+  try {
+    await invoke("rename_branch", { 
+      repoPath: repo.path, 
+      oldName: repo.head_shorthand, 
+      newName 
+    });
+    
+    // Update local state
+    repo.current_branch = newName;
+    repo.head_shorthand = newName;
+    displayBranch.textContent = newName;
+    
+    renameModal.classList.add("hidden");
+  } catch (err) {
+    alert("Error renaming branch: " + err);
+  }
+}
+
+async function handleCommit() {
+  const subject = commitSubjectInput.value.trim();
+  if (!subject) {
+    alert("Please enter a commit subject.");
+    return;
+  }
+
+  const body = commitBodyInput.value.trim();
+  const fullMessage = body ? `${subject}\n\n${body}` : subject;
+
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    const amend = amendCheckbox.checked;
+    await invoke("commit_changes", { repoPath, message: fullMessage, amend });
+    
+    commitSubjectInput.value = "";
+    commitBodyInput.value = "";
+    amendCheckbox.checked = false;
+    updateCharCount();
+    refreshChanges();
+  } catch (err) {
+    alert("Error committing: " + err);
+  }
+}
+
+function updateCharCount() {
+  const count = commitSubjectInput.value.length;
+  charCountDisplay.textContent = `${count} / 72`;
+}
+
+async function handleAmendChange() {
+  if (amendCheckbox.checked) {
+    try {
+      const repoPath = repositories[activeTabIndex].path;
+      const fullMessage = await invoke("get_last_commit_message", { repoPath });
+      
+      const parts = fullMessage.split("\n\n");
+      commitSubjectInput.value = parts[0].trim();
+      commitBodyInput.value = parts.length > 1 ? parts.slice(1).join("\n\n").trim() : "";
+      
+      updateCharCount();
+    } catch (err) {
+      console.error("Failed to get last commit message:", err);
+      amendCheckbox.checked = false;
+    }
+  } else {
+    commitSubjectInput.value = "";
+    commitBodyInput.value = "";
+    updateCharCount();
+  }
+}
+
 function closeTab(index) {
   repositories.splice(index, 1);
   saveToStorage();
@@ -209,5 +334,32 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
   document.getElementById("stage-all-btn").addEventListener("click", () => stageFiles(currentUnstagedPaths));
   document.getElementById("unstage-all-btn").addEventListener("click", () => unstageFiles(currentStagedPaths));
+  
+  branchContainer.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    branchMenu.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", () => {
+    branchMenu.classList.add("hidden");
+  });
+
+  branchMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  menuRenameBranch.addEventListener("click", (e) => {
+    e.stopPropagation();
+    handleRenameBranch();
+  });
+
+  cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
+  confirmRenameBtn.addEventListener("click", confirmRename);
+
+  commitSubjectInput.addEventListener("input", updateCharCount);
+  commitBtn.addEventListener("click", handleCommit);
+  amendCheckbox.addEventListener("change", handleAmendChange);
+  
   loadFromStorage();
 });
