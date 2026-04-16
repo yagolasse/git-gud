@@ -1,56 +1,98 @@
 const { invoke } = window.__TAURI__.core;
+const { open } = window.__TAURI__.dialog;
 
-let greetInputEl;
-let greetMsgEl;
+let repositories = []; // Array of { path, name, current_branch }
+let activeTabIndex = -1;
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsgEl.textContent = await invoke("greet", { name: greetInputEl.value });
+const tabsContainer = document.getElementById("tabs-container");
+const noRepoView = document.getElementById("no-repo-view");
+const repoView = document.getElementById("repo-view");
+const displayName = document.getElementById("display-name");
+const displayPath = document.getElementById("display-path");
+const displayBranch = document.getElementById("display-branch");
+
+async function handleOpenRepo() {
+  try {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Select a Git Repository"
+    });
+
+    if (selected) {
+      const repoInfo = await invoke("open_repository", { path: selected });
+      
+      // Check if already open
+      const existingIndex = repositories.findIndex(r => r.path === repoInfo.path);
+      if (existingIndex !== -1) {
+        setActiveTab(existingIndex);
+        return;
+      }
+
+      repositories.push(repoInfo);
+      renderTabs();
+      setActiveTab(repositories.length - 1);
+    }
+  } catch (err) {
+    console.error("Failed to open repo:", err);
+    alert("Error opening repository: " + err);
+  }
 }
 
-let repoInputEl;
-let repoMsgEl;
-let repoDetailsEl;
-let repoNameEl;
-let repoPathEl;
-let repoBranchEl;
+function renderTabs() {
+  tabsContainer.innerHTML = "";
+  repositories.forEach((repo, index) => {
+    const tab = document.createElement("div");
+    tab.className = `tab ${index === activeTabIndex ? "active" : ""}`;
+    tab.innerHTML = `
+      <span>${repo.name}</span>
+      <span class="tab-close" data-index="${index}">×</span>
+    `;
+    
+    tab.addEventListener("click", (e) => {
+      if (e.target.classList.contains("tab-close")) {
+        closeTab(index);
+      } else {
+        setActiveTab(index);
+      }
+    });
+    
+    tabsContainer.appendChild(tab);
+  });
+}
 
-async function openRepository() {
-  try {
-    const info = await invoke("open_repository", { path: repoInputEl.value });
+function setActiveTab(index) {
+  activeTabIndex = index;
+  renderTabs();
+  
+  if (index === -1) {
+    noRepoView.classList.remove("hidden");
+    repoView.classList.add("hidden");
+  } else {
+    const repo = repositories[index];
+    noRepoView.classList.add("hidden");
+    repoView.classList.remove("hidden");
     
-    // Display metadata
-    repoNameEl.textContent = info.name;
-    repoPathEl.textContent = info.path;
-    repoBranchEl.textContent = info.current_branch;
-    
-    repoDetailsEl.style.display = "block";
-    repoMsgEl.textContent = "Successfully opened repository!";
-    repoMsgEl.style.color = "green";
-  } catch (err) {
-    repoDetailsEl.style.display = "none";
-    repoMsgEl.textContent = "Error: " + err;
-    repoMsgEl.style.color = "red";
+    displayName.textContent = repo.name;
+    displayPath.textContent = repo.path;
+    displayBranch.textContent = repo.current_branch;
+  }
+}
+
+function closeTab(index) {
+  repositories.splice(index, 1);
+  
+  if (repositories.length === 0) {
+    setActiveTab(-1);
+  } else if (activeTabIndex === index) {
+    setActiveTab(Math.max(0, index - 1));
+  } else if (activeTabIndex > index) {
+    setActiveTab(activeTabIndex - 1);
+  } else {
+    renderTabs();
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  repoInputEl = document.querySelector("#repo-input");
-  repoMsgEl = document.querySelector("#repo-msg");
-  repoDetailsEl = document.querySelector("#repo-details");
-  repoNameEl = document.querySelector("#repo-name");
-  repoPathEl = document.querySelector("#repo-path");
-  repoBranchEl = document.querySelector("#repo-branch");
-
-  document.querySelector("#greet-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
-
-  document.querySelector("#repo-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    openRepository();
-  });
+  document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
 });
