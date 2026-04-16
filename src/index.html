@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri App</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>Welcome to Tauri</h1>
+
+      <div class="row">
+        <a href="https://tauri.app" target="_blank">
+          <img src="/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
+        </a>
+        <a
+          href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"
+          target="_blank"
+        >
+          <img
+            src="/assets/javascript.svg"
+            class="logo vanilla"
+            alt="JavaScript logo"
+          />
+        </a>
+      </div>
+      <p>Click on the Tauri logo to learn more about the framework</p>
+
+      <form class="row" id="greet-form">
+        <input id="greet-input" placeholder="Enter a name..." />
+        <button type="submit">Greet</button>
+      </form>
+      <p id="greet-msg"></p>
+
+      <form class="row" id="repo-form">
+        <input id="repo-input" placeholder="Enter path to open repository..." />
+        <button type="submit">Open Repo</button>
+      </form>
+      <div id="repo-details" style="text-align: left; margin-top: 20px; display: none;">
+        <h3>Repository Information</h3>
+        <p><strong>Name:</strong> <span id="repo-name"></span></p>
+        <p><strong>Path:</strong> <span id="repo-path"></span></p>
+        <p><strong>Current Branch:</strong> <span id="repo-branch"></span></p>
+      </div>
+      <p id="repo-msg"></p>
+    </main>
+  </body>
+</html>
