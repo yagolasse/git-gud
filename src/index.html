@@ -32,15 +32,24 @@
           <p>Go to File > Open Repository... to get started.</p>
         </div>
       </div>
+<div id="repo-view" class="hidden">
+  <div class="repo-header">
+    <div class="repo-info-card">
+      <h2>Repository Details</h2>
+      <p><strong>Name:</strong> <span id="display-name"></span></p>
+      <p><strong>Path:</strong> <span id="display-path"></span></p>
+      <p><strong>Current Branch:</strong> <span id="display-branch"></span></p>
+    </div>
+  </div>
 
-      <div id="repo-view" class="hidden">
-        <div class="repo-info-card">
-          <h2>Repository Details</h2>
-          <p><strong>Name:</strong> <span id="display-name"></span></p>
-          <p><strong>Path:</strong> <span id="display-path"></span></p>
-          <p><strong>Current Branch:</strong> <span id="display-branch"></span></p>
-        </div>
-      </div>
+  <div class="changes-section">
+    <h3>Changes</h3>
+    <ul id="changes-list">
+      <!-- Changes will be injected here -->
+    </ul>
+  </div>
+</div>
+
     </main>
   </body>
 </html>

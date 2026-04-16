@@ -10,6 +10,7 @@ const repoView = document.getElementById("repo-view");
 const displayName = document.getElementById("display-name");
 const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
+const changesList = document.getElementById("changes-list");
 
 async function handleOpenRepo() {
   try {
@@ -61,7 +62,7 @@ function renderTabs() {
   });
 }
 
-function setActiveTab(index) {
+async function setActiveTab(index) {
   activeTabIndex = index;
   renderTabs();
   
@@ -76,6 +77,37 @@ function setActiveTab(index) {
     displayName.textContent = repo.name;
     displayPath.textContent = repo.path;
     displayBranch.textContent = repo.current_branch;
+
+    // Fetch and render changes
+    renderChanges(repo.path);
+  }
+}
+
+async function renderChanges(path) {
+  changesList.innerHTML = "<li>Loading changes...</li>";
+  try {
+    const statuses = await invoke("get_repo_status", { path });
+    changesList.innerHTML = "";
+    
+    if (statuses.length === 0) {
+      changesList.innerHTML = "<li>No changes in this repository.</li>";
+      return;
+    }
+
+    statuses.forEach(file => {
+      const li = document.createElement("li");
+      li.className = "change-item";
+      
+      const statusClass = `status-${file.status.toLowerCase()}`;
+      
+      li.innerHTML = `
+        <span class="file-path">${file.path}</span>
+        <span class="status-tag ${statusClass}">${file.status}</span>
+      `;
+      changesList.appendChild(li);
+    });
+  } catch (err) {
+    changesList.innerHTML = `<li style="color: red;">Error: ${err}</li>`;
   }
 }
 
