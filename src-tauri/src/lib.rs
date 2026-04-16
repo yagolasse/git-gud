@@ -1,36 +1,52 @@
 use git2::Repository;
-use notify::{Watcher, RecursiveMode, Config, EventKind};
+use notify::{Watcher, RecursiveMode};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
+/// Represents the status of a single file in the repository.
 #[derive(Serialize, Clone)]
 struct FileStatus {
+    /// The relative path to the file from the repository root.
     path: String,
+    /// A human-readable status string (e.g., "Added", "Modified", "Deleted").
     status: String,
+    /// Whether the file is currently staged in the Git index.
     staged: bool,
 }
 
+/// Basic metadata about an opened repository.
 #[derive(Serialize, Clone)]
 struct RepoInfo {
+    /// Absolute path to the repository's working directory.
     path: String,
+    /// The name of the repository (usually the directory name).
     name: String,
+    /// The name of the current branch or "DETACHED HEAD".
     current_branch: String,
+    /// The shorthand name of the HEAD reference, if available.
     head_shorthand: Option<String>,
 }
 
+/// Global state to manage active file system watchers for each open repository.
 #[derive(Default)]
 struct WatcherState {
+    /// A map of repository paths to their respective `notify` watchers.
     watchers: Arc<Mutex<HashMap<String, notify::RecommendedWatcher>>>,
 }
 
+/// A simple greeting command for testing Tauri's IPC.
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Returns a list of all changed files in the repository, including untracked ones.
+/// 
+/// # Arguments
+/// * `path` - The path to the repository or any subdirectory within it.
 #[tauri::command]
 fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
     let repo = Repository::discover(&path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -75,6 +91,12 @@ fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
     Ok(statuses)
 }
 
+/// Opens a repository, extracts its metadata, and starts a background file system watcher.
+/// 
+/// # Arguments
+/// * `path` - The path to open.
+/// * `app_handle` - Tauri's application handle for emitting events.
+/// * `state` - The managed watcher state.
 #[tauri::command]
 fn open_repository(path: String, app_handle: AppHandle, state: State<'_, WatcherState>) -> Result<RepoInfo, String> {
     let repo = Repository::discover(&path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -98,12 +120,16 @@ fn open_repository(path: String, app_handle: AppHandle, state: State<'_, Watcher
         head_shorthand,
     };
 
-    // Setup watcher for this repository's .git directory
+    // Setup watcher for this repository's .git directory to detect background changes
     start_watching_repo(&info.path, app_handle, state)?;
 
     Ok(info)
 }
 
+/// Initializes a file system watcher for a repository's `.git` directory.
+/// 
+/// This watcher emits a `repo-updated` event to the frontend whenever staging,
+/// commits, or branch changes are detected.
 fn start_watching_repo(repo_path: &str, app_handle: AppHandle, state: State<'_, WatcherState>) -> Result<(), String> {
     let mut watchers = state.watchers.lock().unwrap();
     if watchers.contains_key(repo_path) {
@@ -125,6 +151,7 @@ fn start_watching_repo(repo_path: &str, app_handle: AppHandle, state: State<'_, 
             for path in event.paths {
                 if let Some(filename) = path.file_name() {
                     let name = filename.to_string_lossy();
+                    // Watching index (staged changes), HEAD (branch/commits), and refs (branch updates)
                     if name == "index" || name == "HEAD" || name.starts_with("refs") {
                         should_refresh = true;
                         break;
@@ -144,6 +171,7 @@ fn start_watching_repo(repo_path: &str, app_handle: AppHandle, state: State<'_, 
     Ok(())
 }
 
+/// Stages a list of files by adding them to the Git index.
 #[tauri::command]
 fn stage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -158,6 +186,7 @@ fn stage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), String>
     Ok(())
 }
 
+/// Unstages a list of files by resetting them in the Git index to the state of HEAD.
 #[tauri::command]
 fn unstage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -170,6 +199,7 @@ fn unstage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), Strin
     Ok(())
 }
 
+/// Renames a local branch.
 #[tauri::command]
 fn rename_branch(repo_path: String, old_name: String, new_name: String) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -182,6 +212,12 @@ fn rename_branch(repo_path: String, old_name: String, new_name: String) -> Resul
     Ok(())
 }
 
+/// Commits the currently staged changes.
+/// 
+/// # Arguments
+/// * `repo_path` - Path to the repository.
+/// * `message` - The commit message.
+/// * `amend` - If true, the last commit will be replaced with these changes.
 #[tauri::command]
 fn commit_changes(repo_path: String, message: String, amend: bool) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -215,6 +251,7 @@ fn commit_changes(repo_path: String, message: String, amend: bool) -> Result<(),
     Ok(())
 }
 
+/// Returns the commit message of the current HEAD.
 #[tauri::command]
 fn get_last_commit_message(repo_path: String) -> Result<String, String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
@@ -224,6 +261,7 @@ fn get_last_commit_message(repo_path: String) -> Result<String, String> {
     Ok(commit.message().unwrap_or("").to_string())
 }
 
+/// Main entry point for the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

@@ -1,12 +1,29 @@
+/**
+ * @file main.js
+ * @description Frontend logic for Git Gud, handling UI interactions, 
+ * repository state, and IPC with the Rust backend.
+ */
+
 const { invoke } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
-let repositories = []; // Array of { path, name, current_branch, head_shorthand }
+/** 
+ * List of currently open repositories.
+ * @type {Array<{path: string, name: string, current_branch: string, head_shorthand: string}>} 
+ */
+let repositories = [];
+
+/** 
+ * Index of the currently active tab.
+ * @type {number} 
+ */
 let activeTabIndex = -1;
 
+/** Key used for persistent storage of open repo paths. */
 const STORAGE_KEY = "git-gud-repos";
 
+// --- DOM Elements ---
 const tabsContainer = document.getElementById("tabs-container");
 const noRepoView = document.getElementById("no-repo-view");
 const repoView = document.getElementById("repo-view");
@@ -31,11 +48,17 @@ const charCountDisplay = document.getElementById("char-count");
 const amendCheckbox = document.getElementById("amend-checkbox");
 const commitBtn = document.getElementById("commit-btn");
 
+/**
+ * Saves the current list of repository paths to localStorage.
+ */
 function saveToStorage() {
   const paths = repositories.map(r => r.path);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(paths));
 }
 
+/**
+ * Loads saved repositories from localStorage and attempts to open them.
+ */
 async function loadFromStorage() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
@@ -60,6 +83,9 @@ async function loadFromStorage() {
   }
 }
 
+/**
+ * Opens a native folder picker to select and open a new Git repository.
+ */
 async function handleOpenRepo() {
   try {
     const selected = await open({
@@ -71,7 +97,6 @@ async function handleOpenRepo() {
     if (selected) {
       const repoInfo = await invoke("open_repository", { path: selected });
       
-      // Check if already open
       const existingIndex = repositories.findIndex(r => r.path === repoInfo.path);
       if (existingIndex !== -1) {
         setActiveTab(existingIndex);
@@ -89,6 +114,9 @@ async function handleOpenRepo() {
   }
 }
 
+/**
+ * Re-renders the tab bar based on the `repositories` array.
+ */
 function renderTabs() {
   tabsContainer.innerHTML = "";
   repositories.forEach((repo, index) => {
@@ -111,6 +139,10 @@ function renderTabs() {
   });
 }
 
+/**
+ * Switches the active view to the repository at the given index.
+ * @param {number} index - The index in the `repositories` array.
+ */
 async function setActiveTab(index) {
   activeTabIndex = index;
   renderTabs();
@@ -127,7 +159,6 @@ async function setActiveTab(index) {
     displayPath.textContent = repo.path;
     displayBranch.textContent = repo.current_branch;
 
-    // Show/hide branch menu if head is available
     if (!repo.head_shorthand) {
       branchContainer.style.pointerEvents = "none";
       branchContainer.style.color = "#666";
@@ -136,20 +167,23 @@ async function setActiveTab(index) {
       branchContainer.style.color = "inherit";
     }
 
-    // Reset commit UI
     commitSubjectInput.value = "";
     commitBodyInput.value = "";
     updateCharCount();
     amendCheckbox.checked = false;
 
-    // Fetch and render changes
     refreshChanges();
   }
 }
 
+/** Tracks currently visible unstaged paths for the "Stage All" feature. */
 let currentUnstagedPaths = [];
+/** Tracks currently visible staged paths for the "Unstage All" feature. */
 let currentStagedPaths = [];
 
+/**
+ * Fetches and displays the current Git status (staged/unstaged files) for the active repo.
+ */
 async function refreshChanges() {
   if (activeTabIndex === -1) return;
   const path = repositories[activeTabIndex].path;
@@ -183,6 +217,12 @@ async function refreshChanges() {
   }
 }
 
+/**
+ * Creates a DOM element for a single file in the change list.
+ * @param {Object} file - The file status object from Rust.
+ * @param {boolean} isStaged - Whether the file is currently staged.
+ * @returns {HTMLElement}
+ */
 function createFileItem(file, isStaged) {
   const li = document.createElement("li");
   li.className = "change-item";
@@ -204,6 +244,10 @@ function createFileItem(file, isStaged) {
   return li;
 }
 
+/**
+ * Stages a list of files in the current repository.
+ * @param {string[]} filePaths 
+ */
 async function stageFiles(filePaths) {
   if (filePaths.length === 0) return;
   try {
@@ -215,6 +259,10 @@ async function stageFiles(filePaths) {
   }
 }
 
+/**
+ * Unstages a list of files in the current repository.
+ * @param {string[]} filePaths 
+ */
 async function unstageFiles(filePaths) {
   if (filePaths.length === 0) return;
   try {
@@ -226,6 +274,7 @@ async function unstageFiles(filePaths) {
   }
 }
 
+/** Opens the rename branch modal. */
 async function handleRenameBranch() {
   const repo = repositories[activeTabIndex];
   if (!repo || !repo.head_shorthand) return;
@@ -234,9 +283,10 @@ async function handleRenameBranch() {
   newBranchInput.value = repo.head_shorthand;
   renameModal.classList.remove("hidden");
   newBranchInput.focus();
-  branchMenu.classList.add("hidden"); // Close the menu
+  branchMenu.classList.add("hidden");
 }
 
+/** Executes the branch rename via Rust. */
 async function confirmRename() {
   const repo = repositories[activeTabIndex];
   const newName = newBranchInput.value.trim();
@@ -253,7 +303,6 @@ async function confirmRename() {
       newName 
     });
     
-    // Update local state
     repo.current_branch = newName;
     repo.head_shorthand = newName;
     displayBranch.textContent = newName;
@@ -264,6 +313,9 @@ async function confirmRename() {
   }
 }
 
+/**
+ * Assembles and executes a Git commit.
+ */
 async function handleCommit() {
   const subject = commitSubjectInput.value.trim();
   if (!subject) {
@@ -289,11 +341,15 @@ async function handleCommit() {
   }
 }
 
+/** Updates the subject character counter UI. */
 function updateCharCount() {
   const count = commitSubjectInput.value.length;
   charCountDisplay.textContent = `${count} / 72`;
 }
 
+/**
+ * Handles the "Amend" checkbox state change, fetching previous commit message if needed.
+ */
 async function handleAmendChange() {
   if (amendCheckbox.checked) {
     try {
@@ -316,6 +372,10 @@ async function handleAmendChange() {
   }
 }
 
+/**
+ * Closes a repository tab.
+ * @param {number} index 
+ */
 function closeTab(index) {
   repositories.splice(index, 1);
   saveToStorage();
@@ -331,6 +391,9 @@ function closeTab(index) {
   }
 }
 
+/**
+ * Initializes all event listeners and background event listeners.
+ */
 async function setupEventListeners() {
   document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
   document.getElementById("stage-all-btn").addEventListener("click", () => stageFiles(currentUnstagedPaths));
@@ -362,14 +425,11 @@ async function setupEventListeners() {
   commitBtn.addEventListener("click", handleCommit);
   amendCheckbox.addEventListener("change", handleAmendChange);
 
-  // Listen for background repository updates
+  // Listen for background repository updates emitted by the Rust file watcher
   await listen("repo-updated", (event) => {
     const updatedPath = event.payload;
-    console.log(`Repository updated at: ${updatedPath}`);
     
-    // Update local metadata if it's the active tab
     if (activeTabIndex !== -1 && repositories[activeTabIndex].path === updatedPath) {
-      // Re-fetch branch and status
       invoke("open_repository", { path: updatedPath }).then(repoInfo => {
         repositories[activeTabIndex].current_branch = repoInfo.current_branch;
         repositories[activeTabIndex].head_shorthand = repoInfo.head_shorthand;
@@ -377,7 +437,6 @@ async function setupEventListeners() {
         refreshChanges();
       });
     } else {
-      // Just update the metadata in the background for other tabs
       const repoIndex = repositories.findIndex(r => r.path === updatedPath);
       if (repoIndex !== -1) {
         invoke("open_repository", { path: updatedPath }).then(repoInfo => {
@@ -389,6 +448,7 @@ async function setupEventListeners() {
   });
 }
 
+// Bootstrap the application
 window.addEventListener("DOMContentLoaded", () => {
   setupEventListeners();
   loadFromStorage();
