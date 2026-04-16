@@ -1,5 +1,6 @@
 const { invoke } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
+const { listen } = window.__TAURI__.event;
 
 let repositories = []; // Array of { path, name, current_branch, head_shorthand }
 let activeTabIndex = -1;
@@ -330,7 +331,7 @@ function closeTab(index) {
   }
 }
 
-window.addEventListener("DOMContentLoaded", () => {
+async function setupEventListeners() {
   document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
   document.getElementById("stage-all-btn").addEventListener("click", () => stageFiles(currentUnstagedPaths));
   document.getElementById("unstage-all-btn").addEventListener("click", () => unstageFiles(currentStagedPaths));
@@ -360,6 +361,35 @@ window.addEventListener("DOMContentLoaded", () => {
   commitSubjectInput.addEventListener("input", updateCharCount);
   commitBtn.addEventListener("click", handleCommit);
   amendCheckbox.addEventListener("change", handleAmendChange);
-  
+
+  // Listen for background repository updates
+  await listen("repo-updated", (event) => {
+    const updatedPath = event.payload;
+    console.log(`Repository updated at: ${updatedPath}`);
+    
+    // Update local metadata if it's the active tab
+    if (activeTabIndex !== -1 && repositories[activeTabIndex].path === updatedPath) {
+      // Re-fetch branch and status
+      invoke("open_repository", { path: updatedPath }).then(repoInfo => {
+        repositories[activeTabIndex].current_branch = repoInfo.current_branch;
+        repositories[activeTabIndex].head_shorthand = repoInfo.head_shorthand;
+        displayBranch.textContent = repoInfo.current_branch;
+        refreshChanges();
+      });
+    } else {
+      // Just update the metadata in the background for other tabs
+      const repoIndex = repositories.findIndex(r => r.path === updatedPath);
+      if (repoIndex !== -1) {
+        invoke("open_repository", { path: updatedPath }).then(repoInfo => {
+          repositories[repoIndex].current_branch = repoInfo.current_branch;
+          repositories[repoIndex].head_shorthand = repoInfo.head_shorthand;
+        });
+      }
+    }
+  });
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  setupEventListeners();
   loadFromStorage();
 });
