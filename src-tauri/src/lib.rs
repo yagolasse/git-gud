@@ -1,11 +1,11 @@
 use git2::Repository;
 use serde::Serialize;
-use std::path::PathBuf;
 
 #[derive(Serialize)]
 struct FileStatus {
     path: String,
     status: String,
+    staged: bool,
 }
 
 #[derive(Serialize)]
@@ -16,7 +16,6 @@ struct RepoInfo {
     head_shorthand: Option<String>,
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -26,7 +25,7 @@ fn greet(name: &str) -> String {
 fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
     let repo = Repository::discover(&path).map_err(|e| format!("Failed to find repository: {}", e))?;
     let mut statuses = Vec::new();
-    
+
     let mut status_options = git2::StatusOptions::new();
     status_options.include_untracked(true);
     status_options.recurse_untracked_dirs(true);
@@ -37,7 +36,7 @@ fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
     for entry in repo_statuses.iter() {
         let path = entry.path().unwrap_or("unknown").to_string();
         let status_bits = entry.status();
-        
+
         let status_str = if status_bits.is_index_new() || status_bits.is_wt_new() {
             "Added"
         } else if status_bits.is_index_modified() || status_bits.is_wt_modified() {
@@ -50,9 +49,17 @@ fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
             "Other"
         };
 
+        // Determine if file is staged
+        let is_staged = status_bits.is_index_new() || 
+                        status_bits.is_index_modified() || 
+                        status_bits.is_index_deleted() || 
+                        status_bits.is_index_renamed() || 
+                        status_bits.is_index_typechange();
+
         statuses.push(FileStatus {
             path,
             status: status_str.to_string(),
+            staged: is_staged,
         });
     }
 
@@ -61,7 +68,6 @@ fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
 
 #[tauri::command]
 fn open_repository(path: String) -> Result<RepoInfo, String> {
-    // Repository::discover searches for a .git folder in the path or its parents
     let repo = Repository::discover(&path).map_err(|e| format!("Failed to find repository: {}", e))?;
     
     let workdir = repo.workdir()
@@ -84,12 +90,42 @@ fn open_repository(path: String) -> Result<RepoInfo, String> {
     })
 }
 
+#[tauri::command]
+fn stage_file(repo_path: String, file_path: String) -> Result<(), String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    let mut index = repo.index().map_err(|e| format!("Failed to open index: {}", e))?;
+    
+    index.add_path(std::path::Path::new(&file_path))
+        .map_err(|e| format!("Failed to add file to index: {}", e))?;
+    
+    index.write().map_err(|e| format!("Failed to write index: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn unstage_file(repo_path: String, file_path: String) -> Result<(), String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
+    let commit = head.peel_to_commit().map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?;
+    
+    repo.reset_default(Some(commit.as_object()), &[file_path])
+        .map_err(|e| format!("Failed to unstage file: {}", e))?;
+        
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet, open_repository, get_repo_status])
+        .invoke_handler(tauri::generate_handler![
+            greet, 
+            open_repository, 
+            get_repo_status,
+            stage_file,
+            unstage_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

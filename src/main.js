@@ -12,7 +12,8 @@ const repoView = document.getElementById("repo-view");
 const displayName = document.getElementById("display-name");
 const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
-const changesList = document.getElementById("changes-list");
+const unstagedList = document.getElementById("unstaged-list");
+const stagedList = document.getElementById("staged-list");
 
 function saveToStorage() {
   const paths = repositories.map(r => r.path);
@@ -111,35 +112,73 @@ async function setActiveTab(index) {
     displayBranch.textContent = repo.current_branch;
 
     // Fetch and render changes
-    renderChanges(repo.path);
+    refreshChanges();
   }
 }
 
-async function renderChanges(path) {
-  changesList.innerHTML = "<li>Loading changes...</li>";
+async function refreshChanges() {
+  if (activeTabIndex === -1) return;
+  const path = repositories[activeTabIndex].path;
+  
+  unstagedList.innerHTML = "<li>Loading...</li>";
+  stagedList.innerHTML = "<li>Loading...</li>";
+  
   try {
     const statuses = await invoke("get_repo_status", { path });
-    changesList.innerHTML = "";
+    unstagedList.innerHTML = "";
+    stagedList.innerHTML = "";
     
-    if (statuses.length === 0) {
-      changesList.innerHTML = "<li>No changes in this repository.</li>";
-      return;
-    }
+    const unstaged = statuses.filter(s => !s.staged);
+    const staged = statuses.filter(s => s.staged);
 
-    statuses.forEach(file => {
-      const li = document.createElement("li");
-      li.className = "change-item";
-      
-      const statusClass = `status-${file.status.toLowerCase()}`;
-      
-      li.innerHTML = `
-        <span class="file-path">${file.path}</span>
-        <span class="status-tag ${statusClass}">${file.status}</span>
-      `;
-      changesList.appendChild(li);
-    });
+    if (unstaged.length === 0) unstagedList.innerHTML = "<li>No unstaged changes</li>";
+    if (staged.length === 0) stagedList.innerHTML = "<li>No staged changes</li>";
+
+    unstaged.forEach(file => unstagedList.appendChild(createFileItem(file, false)));
+    staged.forEach(file => stagedList.appendChild(createFileItem(file, true)));
   } catch (err) {
-    changesList.innerHTML = `<li style="color: red;">Error: ${err}</li>`;
+    console.error("Failed to fetch changes:", err);
+  }
+}
+
+function createFileItem(file, isStaged) {
+  const li = document.createElement("li");
+  li.className = "change-item";
+  
+  const statusClass = `status-${file.status.toLowerCase()}`;
+  const actionLabel = isStaged ? "Unstage" : "Stage";
+  const actionFn = isStaged ? unstageFile : stageFile;
+  
+  li.innerHTML = `
+    <div class="file-info">
+      <span class="status-tag ${statusClass}">${file.status[0]}</span>
+      <span class="file-path" title="${file.path}">${file.path}</span>
+    </div>
+    <button class="action-btn">${actionLabel}</button>
+  `;
+  
+  li.querySelector(".action-btn").addEventListener("click", () => actionFn(file.path));
+  
+  return li;
+}
+
+async function stageFile(filePath) {
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("stage_file", { repoPath, filePath });
+    refreshChanges();
+  } catch (err) {
+    alert("Error staging file: " + err);
+  }
+}
+
+async function unstageFile(filePath) {
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("unstage_file", { repoPath, filePath });
+    refreshChanges();
+  } catch (err) {
+    alert("Error unstaging file: " + err);
   }
 }
 
