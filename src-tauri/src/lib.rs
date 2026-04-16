@@ -49,7 +49,6 @@ fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
             "Other"
         };
 
-        // Determine if file is staged
         let is_staged = status_bits.is_index_new() || 
                         status_bits.is_index_modified() || 
                         status_bits.is_index_deleted() || 
@@ -91,25 +90,27 @@ fn open_repository(path: String) -> Result<RepoInfo, String> {
 }
 
 #[tauri::command]
-fn stage_file(repo_path: String, file_path: String) -> Result<(), String> {
+fn stage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
     let mut index = repo.index().map_err(|e| format!("Failed to open index: {}", e))?;
     
-    index.add_path(std::path::Path::new(&file_path))
-        .map_err(|e| format!("Failed to add file to index: {}", e))?;
+    for file_path in file_paths {
+        index.add_path(std::path::Path::new(&file_path))
+            .map_err(|e| format!("Failed to add file {} to index: {}", file_path, e))?;
+    }
     
     index.write().map_err(|e| format!("Failed to write index: {}", e))?;
     Ok(())
 }
 
 #[tauri::command]
-fn unstage_file(repo_path: String, file_path: String) -> Result<(), String> {
+fn unstage_files(repo_path: String, file_paths: Vec<String>) -> Result<(), String> {
     let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
     let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
     let commit = head.peel_to_commit().map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?;
     
-    repo.reset_default(Some(commit.as_object()), &[file_path])
-        .map_err(|e| format!("Failed to unstage file: {}", e))?;
+    repo.reset_default(Some(commit.as_object()), &file_paths)
+        .map_err(|e| format!("Failed to unstage files: {}", e))?;
         
     Ok(())
 }
@@ -123,8 +124,8 @@ pub fn run() {
             greet, 
             open_repository, 
             get_repo_status,
-            stage_file,
-            unstage_file
+            stage_files,
+            unstage_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

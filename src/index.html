@@ -44,13 +44,19 @@
 
   <div class="changes-section">
     <div class="changes-column">
-      <h3>Unstaged Changes</h3>
+      <div class="column-header">
+        <h3>Unstaged Changes</h3>
+        <button id="stage-all-btn" class="small-btn">Stage All</button>
+      </div>
       <ul id="unstaged-list" class="file-list">
         <!-- Unstaged changes will be injected here -->
       </ul>
     </div>
     <div class="changes-column">
-      <h3>Staged Changes</h3>
+      <div class="column-header">
+        <h3>Staged Changes</h3>
+        <button id="unstage-all-btn" class="small-btn">Unstage All</button>
+      </div>
       <ul id="staged-list" class="file-list">
         <!-- Staged changes will be injected here -->
       </ul>

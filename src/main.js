@@ -116,6 +116,9 @@ async function setActiveTab(index) {
   }
 }
 
+let currentUnstagedPaths = [];
+let currentStagedPaths = [];
+
 async function refreshChanges() {
   if (activeTabIndex === -1) return;
   const path = repositories[activeTabIndex].path;
@@ -130,6 +133,9 @@ async function refreshChanges() {
     
     const unstaged = statuses.filter(s => !s.staged);
     const staged = statuses.filter(s => s.staged);
+
+    currentUnstagedPaths = unstaged.map(s => s.path);
+    currentStagedPaths = staged.map(s => s.path);
 
     if (unstaged.length === 0) unstagedList.innerHTML = "<li>No unstaged changes</li>";
     if (staged.length === 0) stagedList.innerHTML = "<li>No staged changes</li>";
@@ -147,7 +153,7 @@ function createFileItem(file, isStaged) {
   
   const statusClass = `status-${file.status.toLowerCase()}`;
   const actionLabel = isStaged ? "Unstage" : "Stage";
-  const actionFn = isStaged ? unstageFile : stageFile;
+  const actionFn = isStaged ? unstageFiles : stageFiles;
   
   li.innerHTML = `
     <div class="file-info">
@@ -157,28 +163,30 @@ function createFileItem(file, isStaged) {
     <button class="action-btn">${actionLabel}</button>
   `;
   
-  li.querySelector(".action-btn").addEventListener("click", () => actionFn(file.path));
+  li.querySelector(".action-btn").addEventListener("click", () => actionFn([file.path]));
   
   return li;
 }
 
-async function stageFile(filePath) {
+async function stageFiles(filePaths) {
+  if (filePaths.length === 0) return;
   try {
     const repoPath = repositories[activeTabIndex].path;
-    await invoke("stage_file", { repoPath, filePath });
+    await invoke("stage_files", { repoPath, filePaths });
     refreshChanges();
   } catch (err) {
-    alert("Error staging file: " + err);
+    alert("Error staging files: " + err);
   }
 }
 
-async function unstageFile(filePath) {
+async function unstageFiles(filePaths) {
+  if (filePaths.length === 0) return;
   try {
     const repoPath = repositories[activeTabIndex].path;
-    await invoke("unstage_file", { repoPath, filePath });
+    await invoke("unstage_files", { repoPath, filePaths });
     refreshChanges();
   } catch (err) {
-    alert("Error unstaging file: " + err);
+    alert("Error unstaging files: " + err);
   }
 }
 
@@ -199,5 +207,7 @@ function closeTab(index) {
 
 window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
+  document.getElementById("stage-all-btn").addEventListener("click", () => stageFiles(currentUnstagedPaths));
+  document.getElementById("unstage-all-btn").addEventListener("click", () => unstageFiles(currentStagedPaths));
   loadFromStorage();
 });

@@ -152,11 +152,32 @@ body {
   flex-direction: column;
 }
 
-.changes-column h3 {
-  margin-top: 0;
+.column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   border-bottom: 1px solid #eee;
   padding-bottom: 10px;
-  font-size: 1rem;
+  margin-bottom: 5px;
+}
+
+.column-header h3 {
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.small-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.small-btn:hover {
+  background: #e0e0e0;
 }
 
 .file-list {
