@@ -4,6 +4,8 @@ const { open } = window.__TAURI__.dialog;
 let repositories = []; // Array of { path, name, current_branch }
 let activeTabIndex = -1;
 
+const STORAGE_KEY = "git-gud-repos";
+
 const tabsContainer = document.getElementById("tabs-container");
 const noRepoView = document.getElementById("no-repo-view");
 const repoView = document.getElementById("repo-view");
@@ -11,6 +13,35 @@ const displayName = document.getElementById("display-name");
 const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
 const changesList = document.getElementById("changes-list");
+
+function saveToStorage() {
+  const paths = repositories.map(r => r.path);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(paths));
+}
+
+async function loadFromStorage() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      const paths = JSON.parse(saved);
+      for (const path of paths) {
+        try {
+          const repoInfo = await invoke("open_repository", { path });
+          repositories.push(repoInfo);
+        } catch (e) {
+          console.warn(`Failed to restore repo at ${path}:`, e);
+        }
+      }
+      
+      if (repositories.length > 0) {
+        renderTabs();
+        setActiveTab(0);
+      }
+    } catch (e) {
+      console.error("Failed to parse saved repositories:", e);
+    }
+  }
+}
 
 async function handleOpenRepo() {
   try {
@@ -31,6 +62,7 @@ async function handleOpenRepo() {
       }
 
       repositories.push(repoInfo);
+      saveToStorage();
       renderTabs();
       setActiveTab(repositories.length - 1);
     }
@@ -113,6 +145,7 @@ async function renderChanges(path) {
 
 function closeTab(index) {
   repositories.splice(index, 1);
+  saveToStorage();
   
   if (repositories.length === 0) {
     setActiveTab(-1);
@@ -127,4 +160,5 @@ function closeTab(index) {
 
 window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
+  loadFromStorage();
 });
