@@ -48,27 +48,61 @@
         <div class="main-layout">
           <!-- Left Sidebar: Changes -->
           <div class="sidebar-left">
-            <div class="changes-column">
-              <div class="column-header">
-                <h3>Unstaged Changes</h3>
-                <div class="column-actions">
-                  <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
-                  <button id="stage-all-btn" class="small-btn">Stage All</button>
+            <div class="sidebar-section">
+              <div class="section-header" id="header-changes">
+                <span>Changes</span>
+                <span class="chevron">▼</span>
+              </div>
+              <div class="section-content" id="content-changes">
+                <div class="changes-column">
+                  <div class="column-header">
+                    <h3>Unstaged</h3>
+                    <div class="column-actions">
+                      <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
+                      <button id="stage-all-btn" class="small-btn">Stage All</button>
+                    </div>
+                  </div>
+                  <ul id="unstaged-list" class="file-list"></ul>
+                </div>
+
+                <div class="changes-column">
+                  <div class="column-header">
+                    <h3>Staged</h3>
+                    <button id="unstage-all-btn" class="small-btn">Unstage All</button>
+                  </div>
+                  <ul id="staged-list" class="file-list"></ul>
                 </div>
               </div>
-              <ul id="unstaged-list" class="file-list">
-                <!-- Unstaged changes will be injected here -->
-              </ul>
             </div>
 
-            <div class="changes-column">
-              <div class="column-header">
-                <h3>Staged Changes</h3>
-                <button id="unstage-all-btn" class="small-btn">Unstage All</button>
+            <div class="sidebar-section">
+              <div class="section-header" id="header-branches">
+                <span>Branches</span>
+                <span class="chevron">▼</span>
               </div>
-              <ul id="staged-list" class="file-list">
-                <!-- Staged changes will be injected here -->
-              </ul>
+              <div class="section-content" id="content-branches">
+                <ul id="branches-list" class="sidebar-list"></ul>
+              </div>
+            </div>
+
+            <div class="sidebar-section">
+              <div class="section-header" id="header-remotes">
+                <span>Remotes</span>
+                <span class="chevron">▼</span>
+              </div>
+              <div class="section-content" id="content-remotes">
+                <ul id="remotes-list" class="sidebar-list"></ul>
+              </div>
+            </div>
+
+            <div class="sidebar-section">
+              <div class="section-header" id="header-stashes">
+                <span>Stashes</span>
+                <span class="chevron">▼</span>
+              </div>
+              <div class="section-content" id="content-stashes">
+                <ul id="stashes-list" class="sidebar-list"></ul>
+              </div>
             </div>
 
             <!-- Current Branch Info (Small footer for sidebar) -->

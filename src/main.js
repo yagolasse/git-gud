@@ -34,6 +34,9 @@ const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
 const unstagedList = document.getElementById("unstaged-list");
 const stagedList = document.getElementById("staged-list");
+const branchesList = document.getElementById("branches-list");
+const remotesList = document.getElementById("remotes-list");
+const stashesList = document.getElementById("stashes-list");
 const branchContainer = document.getElementById("branch-container");
 const branchMenu = document.getElementById("branch-menu");
 const menuRenameBranch = document.getElementById("menu-rename-branch");
@@ -216,7 +219,7 @@ async function setActiveTab(index) {
     if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
     if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
 
-    refreshChanges();
+    refreshEverything();
   }
 }
 
@@ -224,6 +227,22 @@ async function setActiveTab(index) {
 let currentUnstagedPaths = [];
 /** Tracks currently visible staged paths for the "Unstage All" feature. */
 let currentStagedPaths = [];
+
+/**
+ * Refreshes all repository data (status, branches, remotes, stashes).
+ */
+async function refreshEverything() {
+  if (activeTabIndex === -1) return;
+  const repoPath = repositories[activeTabIndex].path;
+
+  // Run all fetches in parallel for efficiency
+  await Promise.all([
+    refreshChanges(),
+    refreshBranches(repoPath),
+    refreshRemotes(repoPath),
+    refreshStashes(repoPath)
+  ]);
+}
 
 /**
  * Fetches and displays the current Git status (staged/unstaged files) for the active repo.
@@ -246,9 +265,9 @@ async function refreshChanges() {
     currentUnstagedPaths = unstaged.map(s => s.path);
     currentStagedPaths = staged.map(s => s.path);
 
-    if (unstaged.length === 0 && unstagedList) unstagedList.innerHTML = "<li>No unstaged changes</li>";
+    if (unstaged.length === 0 && unstagedList) unstagedList.innerHTML = '<li class="sidebar-item" style="color: var(--text-muted); font-style: italic;">No unstaged changes</li>';
     if (staged.length === 0) {
-      if (stagedList) stagedList.innerHTML = "<li>No staged changes</li>";
+      if (stagedList) stagedList.innerHTML = '<li class="sidebar-item" style="color: var(--text-muted); font-style: italic;">No staged changes</li>';
       if (commitBtn) commitBtn.disabled = true;
     } else {
       if (commitBtn) commitBtn.disabled = false;
@@ -258,6 +277,83 @@ async function refreshChanges() {
     if (stagedList) staged.forEach(file => stagedList.appendChild(createFileItem(file, true)));
   } catch (err) {
     console.error("Failed to fetch changes:", err);
+  }
+}
+
+/**
+ * Fetches and displays local/remote branches.
+ */
+async function refreshBranches(repoPath) {
+  if (!branchesList) return;
+  try {
+    const branches = await invoke("get_branches", { repoPath });
+    branchesList.innerHTML = "";
+    
+    branches.forEach(branch => {
+      const li = document.createElement("li");
+      li.className = `sidebar-item ${branch.is_current ? "active" : ""}`;
+      li.innerHTML = `
+        <span class="item-icon">${branch.is_remote ? "☁" : ""}</span>
+        <span>${branch.name}</span>
+      `;
+      branchesList.appendChild(li);
+    });
+  } catch (err) {
+    console.error("Failed to fetch branches:", err);
+  }
+}
+
+/**
+ * Fetches and displays remotes.
+ */
+async function refreshRemotes(repoPath) {
+  if (!remotesList) return;
+  try {
+    const remotes = await invoke("get_remotes", { repoPath });
+    remotesList.innerHTML = "";
+    
+    remotes.forEach(remote => {
+      const li = document.createElement("li");
+      li.className = "sidebar-item";
+      li.innerHTML = `
+        <span class="item-icon">📡</span>
+        <div style="display: flex; flex-direction: column;">
+          <span>${remote.name}</span>
+          <span class="item-url">${remote.url || "No URL"}</span>
+        </div>
+      `;
+      remotesList.appendChild(li);
+    });
+  } catch (err) {
+    console.error("Failed to fetch remotes:", err);
+  }
+}
+
+/**
+ * Fetches and displays stashes.
+ */
+async function refreshStashes(repoPath) {
+  if (!stashesList) return;
+  try {
+    const stashes = await invoke("get_stashes", { repoPath });
+    stashesList.innerHTML = "";
+    
+    if (stashes.length === 0) {
+      stashesList.innerHTML = '<li class="sidebar-item" style="color: var(--text-muted); font-style: italic;">No stashes</li>';
+      return;
+    }
+
+    stashes.forEach(stash => {
+      const li = document.createElement("li");
+      li.className = "sidebar-item";
+      li.innerHTML = `
+        <span class="item-icon">📦</span>
+        <span>stash@{${stash.index}}: ${stash.message}</span>
+      `;
+      stashesList.appendChild(li);
+    });
+  } catch (err) {
+    console.error("Failed to fetch stashes:", err);
   }
 }
 
@@ -310,7 +406,7 @@ async function stageFiles(filePaths) {
   try {
     const repoPath = repositories[activeTabIndex].path;
     await invoke("stage_files", { repoPath, filePaths });
-    refreshChanges();
+    refreshEverything();
   } catch (err) {
     alert("Error staging files: " + err);
   }
@@ -325,7 +421,7 @@ async function unstageFiles(filePaths) {
   try {
     const repoPath = repositories[activeTabIndex].path;
     await invoke("unstage_files", { repoPath, filePaths });
-    refreshChanges();
+    refreshEverything();
   } catch (err) {
     alert("Error unstaging files: " + err);
   }
@@ -338,20 +434,17 @@ async function unstageFiles(filePaths) {
 async function discardUnstagedChanges(filePaths) {
   if (filePaths.length === 0) return;
   
-  // Use native OS dialog for absolute reliability
   const confirmed = await ask(`Are you sure you want to discard changes in ${filePaths.length} file(s)? This cannot be undone.`, {
     title: 'Discard Changes',
     kind: 'warning',
   });
 
-  if (!confirmed) {
-    return;
-  }
+  if (!confirmed) return;
   
   try {
     const repoPath = repositories[activeTabIndex].path;
     await invoke("discard_unstaged_changes", { repoPath, filePaths });
-    refreshChanges();
+    refreshEverything();
   } catch (err) {
     alert("Error discarding changes: " + err);
   }
@@ -372,7 +465,7 @@ async function showDiff(file, staged) {
       diffContainer.innerHTML = "";
       
       if (!diff || diff.trim() === "") {
-        diffContainer.innerHTML = "<div class=\"diff-line diff-line-context\">No changes to show (might be a new untracked file or binary).</div>";
+        diffContainer.innerHTML = "<div class=\"diff-placeholder\">No changes to show (might be a new untracked file or binary).</div>";
       } else {
         const lines = diff.split("\n");
         lines.forEach(line => {
@@ -393,7 +486,6 @@ async function showDiff(file, staged) {
           diffContainer.appendChild(div);
         });
       }
-      // Scroll to top of diff
       diffContainer.scrollTop = 0;
     }
   } catch (err) {
@@ -438,6 +530,7 @@ async function confirmRename() {
     if (displayBranch) displayBranch.textContent = newName;
     
     if (renameModal) renameModal.classList.add("hidden");
+    refreshBranches(repo.path);
   } catch (err) {
     alert("Error renaming branch: " + err);
   }
@@ -466,9 +559,8 @@ async function handleCommit() {
     if (commitBodyInput) commitBodyInput.value = "";
     if (amendCheckbox) amendCheckbox.checked = false;
     updateCharCount();
-    refreshChanges();
+    refreshEverything();
     
-    // Clear diff after commit
     if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
     if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
   } catch (err) {
@@ -543,6 +635,14 @@ async function setupEventListeners() {
   const unstageAllBtn = document.getElementById("unstage-all-btn");
   if (unstageAllBtn) unstageAllBtn.addEventListener("click", () => unstageFiles(currentStagedPaths));
   
+  // Sidebar collapsible logic
+  document.querySelectorAll(".section-header").forEach(header => {
+    header.addEventListener("click", () => {
+      const section = header.parentElement;
+      section.classList.toggle("collapsed");
+    });
+  });
+
   if (branchContainer) {
     branchContainer.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -587,7 +687,7 @@ async function setupEventListeners() {
         repositories[activeTabIndex].current_branch = repoInfo.current_branch;
         repositories[activeTabIndex].head_shorthand = repoInfo.head_shorthand;
         if (displayBranch) displayBranch.textContent = repoInfo.current_branch;
-        refreshChanges();
+        refreshEverything();
       });
     } else {
       const repoIndex = repositories.findIndex(r => r.path === updatedPath);

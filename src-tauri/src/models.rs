@@ -26,6 +26,28 @@ pub struct RepoInfo {
     pub head_shorthand: Option<String>,
 }
 
+/// Represents a Git branch.
+#[derive(Serialize, Clone, Debug)]
+pub struct BranchInfo {
+    pub name: String,
+    pub is_current: bool,
+    pub is_remote: bool,
+}
+
+/// Represents a Git stash.
+#[derive(Serialize, Clone, Debug)]
+pub struct StashInfo {
+    pub index: usize,
+    pub message: String,
+}
+
+/// Represents a Git remote.
+#[derive(Serialize, Clone, Debug)]
+pub struct RemoteInfo {
+    pub name: String,
+    pub url: Option<String>,
+}
+
 /// Global state to manage active file system watchers for each open repository.
 #[derive(Default)]
 pub struct WatcherState {

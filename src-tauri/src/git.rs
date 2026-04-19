@@ -69,6 +69,58 @@ pub fn get_repo_info(repo: &Repository) -> Result<RepoInfo, String> {
     })
 }
 
+pub fn get_branches(repo: &Repository) -> Result<Vec<crate::models::BranchInfo>, String> {
+    let mut branches = Vec::new();
+    
+    let repo_branches = repo.branches(None).map_err(|e| format!("Failed to get branches: {}", e))?;
+
+    for branch_res in repo_branches {
+        let (branch, branch_type) = branch_res.map_err(|e| format!("Failed to iterate branch: {}", e))?;
+        let name = branch.name().map_err(|e| format!("Failed to get branch name: {}", e))?
+            .unwrap_or("unknown").to_string();
+        
+        branches.push(crate::models::BranchInfo {
+            name,
+            is_current: branch.is_head(),
+            is_remote: branch_type == git2::BranchType::Remote,
+        });
+    }
+
+    Ok(branches)
+}
+
+pub fn get_stashes(repo: &mut Repository) -> Result<Vec<crate::models::StashInfo>, String> {
+    let mut stashes = Vec::new();
+
+    repo.stash_foreach(|index, message, _id| {
+        stashes.push(crate::models::StashInfo {
+            index,
+            message: message.to_string(),
+        });
+        true
+    }).map_err(|e| format!("Failed to get stashes: {}", e))?;
+
+    Ok(stashes)
+}
+
+pub fn get_remotes(repo: &Repository) -> Result<Vec<crate::models::RemoteInfo>, String> {
+    let mut remotes = Vec::new();
+    
+    let remote_names = repo.remotes().map_err(|e| format!("Failed to get remotes: {}", e))?;
+
+    for name_opt in remote_names.iter() {
+        if let Some(name) = name_opt {
+            let remote = repo.find_remote(name).map_err(|e| format!("Failed to find remote {}: {}", name, e))?;
+            remotes.push(crate::models::RemoteInfo {
+                name: name.to_string(),
+                url: remote.url().map(|u| u.to_string()),
+            });
+        }
+    }
+
+    Ok(remotes)
+}
+
 pub fn stage_files(repo: &Repository, file_paths: Vec<String>) -> Result<(), String> {
     let mut index = repo.index().map_err(|e| format!("Failed to open index: {}", e))?;
     

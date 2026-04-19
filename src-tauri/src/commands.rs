@@ -15,6 +15,24 @@ pub fn get_repo_status(path: String) -> Result<Vec<FileStatus>, String> {
 }
 
 #[tauri::command]
+pub fn get_branches(repo_path: String) -> Result<Vec<crate::models::BranchInfo>, String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::get_branches(&repo)
+}
+
+#[tauri::command]
+pub fn get_stashes(repo_path: String) -> Result<Vec<crate::models::StashInfo>, String> {
+    let mut repo = git::get_repository(&repo_path)?;
+    git::get_stashes(&mut repo)
+}
+
+#[tauri::command]
+pub fn get_remotes(repo_path: String) -> Result<Vec<crate::models::RemoteInfo>, String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::get_remotes(&repo)
+}
+
+#[tauri::command]
 pub fn open_repository(path: String, app_handle: AppHandle, state: State<'_, WatcherState>) -> Result<RepoInfo, String> {
     let repo = git::get_repository(&path)?;
     let info = git::get_repo_info(&repo)?;
