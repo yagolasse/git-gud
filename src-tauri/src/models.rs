@@ -32,6 +32,12 @@ pub struct BranchInfo {
     pub name: String,
     pub is_current: bool,
     pub is_remote: bool,
+    /// The upstream tracking branch, if any (e.g., "origin/main")
+    pub upstream: Option<String>,
+    /// Number of commits this branch is ahead of its upstream
+    pub ahead: usize,
+    /// Number of commits this branch is behind its upstream
+    pub behind: usize,
 }
 
 /// Represents a Git stash.

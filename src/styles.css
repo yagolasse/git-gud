@@ -365,6 +365,7 @@ body {
   background: var(--bg-active);
   font-weight: bold;
   position: relative;
+  padding-right: 20px;
 }
 
 .sidebar-item.active::after {
@@ -386,6 +387,22 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sidebar-item .branch-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-item .branch-status {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding-left: 8px;
+  white-space: nowrap;
+  z-index: 1;
 }
 
 /* Main Content Right */

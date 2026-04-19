@@ -278,12 +278,34 @@ async function refreshBranches(repoPath) {
     const branches = await invoke("get_branches", { repoPath });
     branchesList.innerHTML = "";
     
+    // Helper to shorten full ref names for display
+    function shortenUpstream(full) {
+      if (full.startsWith('refs/remotes/')) return full.substring(13);
+      if (full.startsWith('refs/heads/')) return full.substring(11);
+      return full;
+    }
+
     branches.forEach(branch => {
       const li = document.createElement("li");
       li.className = `sidebar-item ${branch.is_current ? "active" : ""}`;
+      // Generate status icons for local branches with upstream
+      let statusHtml = '';
+      if (!branch.is_remote && branch.upstream) {
+        const ahead = branch.ahead || 0;
+        const behind = branch.behind || 0;
+        if (ahead > 0 || behind > 0) {
+          let icons = [];
+          if (ahead > 0) icons.push(`↑${ahead}`);
+          if (behind > 0) icons.push(`↓${behind}`);
+          const shortUpstream = shortenUpstream(branch.upstream);
+          statusHtml = `<span class="branch-status" title="${shortUpstream} (${icons.join(', ')})">${icons.join(' ')}</span>`;
+        }
+      }
+      
       li.innerHTML = `
         <span class="item-icon">${branch.is_remote ? "☁" : ""}</span>
-        <span>${branch.name}</span>
+        <span class="branch-name">${branch.name}</span>
+        ${statusHtml}
       `;
       
       // Double click to checkout

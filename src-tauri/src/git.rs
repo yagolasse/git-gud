@@ -79,10 +79,37 @@ pub fn get_branches(repo: &Repository) -> Result<Vec<crate::models::BranchInfo>,
         let name = branch.name().map_err(|e| format!("Failed to get branch name: {}", e))?
             .unwrap_or("unknown").to_string();
         
+        let mut upstream_name = None;
+        let mut ahead = 0;
+        let mut behind = 0;
+        
+        // Only compute upstream info for local branches
+        if branch_type == git2::BranchType::Local {
+            // Get upstream branch name
+            if let Ok(upstream) = branch.upstream() {
+                if let Ok(upstream_ref_name) = upstream.name() {
+                    upstream_name = upstream_ref_name.map(|s| s.to_string());
+                }
+                
+                // Compute ahead/behind counts
+                let local_target = branch.get().target();
+                let upstream_target = upstream.get().target();
+                if let (Some(local_oid), Some(upstream_oid)) = (local_target, upstream_target) {
+                    if let Ok((a, b)) = repo.graph_ahead_behind(local_oid, upstream_oid) {
+                        ahead = a;
+                        behind = b;
+                    }
+                }
+            }
+        }
+        
         branches.push(crate::models::BranchInfo {
             name,
             is_current: branch.is_head(),
             is_remote: branch_type == git2::BranchType::Remote,
+            upstream: upstream_name,
+            ahead,
+            behind,
         });
     }
 
