@@ -261,7 +261,26 @@ fn get_last_commit_message(repo_path: String) -> Result<String, String> {
     Ok(commit.message().unwrap_or("").to_string())
 }
 
-/// Main entry point for the Tauri application.
+/// Discards unstaged changes for a list of files in the working directory.
+#[tauri::command]
+fn discard_unstaged_changes(repo_path: String, file_paths: Vec<String>) -> Result<(), String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    
+    let mut checkout_opts = git2::build::CheckoutBuilder::new();
+    checkout_opts.force();
+    
+    for path in &file_paths {
+        checkout_opts.path(path);
+    }
+
+    // checkout_index(None, ...) uses the repository's default index.
+    // This will overwrite the working directory with the index's content for the specified paths.
+    repo.checkout_index(None, Some(&mut checkout_opts))
+        .map_err(|e| format!("Failed to discard changes for files: {}", e))?;
+        
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -275,6 +294,7 @@ pub fn run() {
             get_repo_status,
             stage_files,
             unstage_files,
+            discard_unstaged_changes,
             rename_branch,
             commit_changes,
             get_last_commit_message

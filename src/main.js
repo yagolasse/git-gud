@@ -231,15 +231,27 @@ function createFileItem(file, isStaged) {
   const actionLabel = isStaged ? "Unstage" : "Stage";
   const actionFn = isStaged ? unstageFiles : stageFiles;
   
+  let actionsHtml = `<button class="action-btn primary-action">${actionLabel}</button>`;
+  
+  if (!isStaged) {
+    actionsHtml += `<button class="action-btn discard-btn">Discard</button>`;
+  }
+  
   li.innerHTML = `
     <div class="file-info">
       <span class="status-tag ${statusClass}">${file.status[0]}</span>
       <span class="file-path" title="${file.path}">${file.path}</span>
     </div>
-    <button class="action-btn">${actionLabel}</button>
+    <div class="file-actions">
+      ${actionsHtml}
+    </div>
   `;
   
-  li.querySelector(".action-btn").addEventListener("click", () => actionFn([file.path]));
+  li.querySelector(".primary-action").addEventListener("click", () => actionFn([file.path]));
+  
+  if (!isStaged) {
+    li.querySelector(".discard-btn").addEventListener("click", () => discardUnstagedChanges([file.path]));
+  }
   
   return li;
 }
@@ -271,6 +283,25 @@ async function unstageFiles(filePaths) {
     refreshChanges();
   } catch (err) {
     alert("Error unstaging files: " + err);
+  }
+}
+
+/**
+ * Discards unstaged changes for a list of files.
+ * @param {string[]} filePaths 
+ */
+async function discardUnstagedChanges(filePaths) {
+  if (filePaths.length === 0) return;
+  if (!confirm(`Are you sure you want to discard changes in ${filePaths.length} file(s)? This cannot be undone.`)) {
+    return;
+  }
+  
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("discard_unstaged_changes", { repoPath, filePaths });
+    refreshChanges();
+  } catch (err) {
+    alert("Error discarding changes: " + err);
   }
 }
 

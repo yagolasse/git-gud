@@ -220,6 +220,11 @@ body {
   text-overflow: ellipsis;
 }
 
+.file-actions {
+  display: flex;
+  gap: 5px;
+}
+
 .action-btn {
   padding: 2px 8px;
   background: #007aff;
@@ -230,6 +235,14 @@ body {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s;
+}
+
+.discard-btn {
+  background: #dc3545;
+}
+
+.discard-btn:hover {
+  background: #c82333 !important;
 }
 
 .change-item:hover .action-btn {
