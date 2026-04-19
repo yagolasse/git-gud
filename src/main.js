@@ -61,6 +61,9 @@ const themeDarkBtn = document.getElementById("theme-dark");
 const checkLight = document.getElementById("check-light");
 const checkDark = document.getElementById("check-dark");
 
+const panelResizer = document.getElementById("panel-resizer");
+const sidebarLeft = document.querySelector(".sidebar-left");
+
 /**
  * Saves the current list of repository paths to localStorage.
  */
@@ -642,6 +645,29 @@ async function setupEventListeners() {
       section.classList.toggle("collapsed");
     });
   });
+
+  // Panel Resizer logic
+  if (panelResizer && sidebarLeft) {
+    let isResizing = false;
+
+    panelResizer.addEventListener("mousedown", (e) => {
+      isResizing = true;
+      document.body.style.cursor = "col-resize";
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isResizing) return;
+      const newWidth = e.clientX;
+      if (newWidth > 150 && newWidth < 800) {
+        sidebarLeft.style.width = `${newWidth}px`;
+      }
+    });
+
+    document.addEventListener("mouseup", () => {
+      isResizing = false;
+      document.body.style.cursor = "default";
+    });
+  }
 
   if (branchContainer) {
     branchContainer.addEventListener("contextmenu", (e) => {

@@ -369,4 +369,68 @@ mod tests {
         let diff = get_file_diff(&repo, file_name, false).unwrap();
         assert!(diff.contains("+Line 2"));
     }
+
+    #[test]
+    fn test_get_branches() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        // Initial commit to create a branch
+        let signature = repo.signature().unwrap();
+        let mut index = repo.index().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+
+        let branches = get_branches(&repo).unwrap();
+        assert!(!branches.is_empty());
+        assert!(branches.iter().any(|b| b.is_current));
+    }
+
+    #[test]
+    fn test_get_stashes() {
+        let dir = tempdir().unwrap();
+        let mut repo = Repository::init(dir.path()).unwrap();
+        
+        // Need a commit to stash against
+        let signature = repo.signature().unwrap();
+        // Create a tracked file
+        let file_path = dir.path().join("tracked_file.txt");
+        {
+            let mut file = File::create(&file_path).unwrap();
+            writeln!(file, "Initial content").unwrap();
+        }
+        stage_files(&repo, vec!["tracked_file.txt".to_string()]).unwrap();
+        
+        {
+            let mut index = repo.index().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = repo.find_tree(tree_id).unwrap();
+            repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+        }
+
+        // 2. Modify the tracked file (so there is something to stash)
+        {
+            let mut file = std::fs::OpenOptions::new().append(true).open(&file_path).unwrap();
+            writeln!(file, "Dirty change").unwrap();
+        }
+        
+        repo.stash_save(&signature, "test stash", None).unwrap();
+
+        let stashes = get_stashes(&mut repo).unwrap();
+        assert_eq!(stashes.len(), 1);
+        assert!(stashes[0].message.contains("test stash"));
+    }
+
+    #[test]
+    fn test_get_remotes() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        repo.remote("origin", "https://github.com/user/repo.git").unwrap();
+
+        let remotes = get_remotes(&repo).unwrap();
+        assert_eq!(remotes.len(), 1);
+        assert_eq!(remotes[0].name, "origin");
+    }
 }
