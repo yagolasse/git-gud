@@ -46,35 +46,8 @@
 
       <div id="repo-view" class="hidden">
         <div class="main-layout">
-          <!-- Left Sidebar: Changes -->
-          <div class="sidebar-left">
-            <div class="sidebar-section">
-              <div class="section-header" id="header-changes">
-                <span>Changes</span>
-                <span class="chevron">▼</span>
-              </div>
-              <div class="section-content" id="content-changes">
-                <div class="changes-column">
-                  <div class="column-header">
-                    <h3>Unstaged</h3>
-                    <div class="column-actions">
-                      <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
-                      <button id="stage-all-btn" class="small-btn">Stage All</button>
-                    </div>
-                  </div>
-                  <ul id="unstaged-list" class="file-list"></ul>
-                </div>
-
-                <div class="changes-column">
-                  <div class="column-header">
-                    <h3>Staged</h3>
-                    <button id="unstage-all-btn" class="small-btn">Unstage All</button>
-                  </div>
-                  <ul id="staged-list" class="file-list"></ul>
-                </div>
-              </div>
-            </div>
-
+          <!-- Left Sidebar: Navigation (Branches, Remotes, Stashes) -->
+          <div class="sidebar-nav">
             <div class="sidebar-section">
               <div class="section-header" id="header-branches">
                 <span>Branches</span>
@@ -106,8 +79,40 @@
             </div>
           </div>
 
-          <!-- Panel Resizer -->
-          <div id="panel-resizer" class="resizer"></div>
+          <!-- First Resizer (Between Nav and Changes) -->
+          <div id="resizer-nav" class="resizer"></div>
+
+          <!-- Middle Column: Changes -->
+          <div class="sidebar-changes">
+            <div class="sidebar-section h-100">
+              <div class="section-header" id="header-changes">
+                <span>Changes</span>
+              </div>
+              <div class="section-content flex-grow" id="content-changes">
+                <div class="changes-column">
+                  <div class="column-header">
+                    <h3>Unstaged</h3>
+                    <div class="column-actions">
+                      <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
+                      <button id="stage-all-btn" class="small-btn">Stage All</button>
+                    </div>
+                  </div>
+                  <ul id="unstaged-list" class="file-list"></ul>
+                </div>
+
+                <div class="changes-column">
+                  <div class="column-header">
+                    <h3>Staged</h3>
+                    <button id="unstage-all-btn" class="small-btn">Unstage All</button>
+                  </div>
+                  <ul id="staged-list" class="file-list"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Second Resizer (Between Changes and Diff) -->
+          <div id="resizer-changes" class="resizer"></div>
 
           <!-- Right Content: Diff and Commit -->
           <div class="main-content-right">

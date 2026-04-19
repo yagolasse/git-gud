@@ -29,8 +29,6 @@ const THEME_KEY = "git-gud-theme";
 const tabsContainer = document.getElementById("tabs-container");
 const noRepoView = document.getElementById("no-repo-view");
 const repoView = document.getElementById("repo-view");
-const displayName = document.getElementById("display-name");
-const displayPath = document.getElementById("display-path");
 const displayBranch = document.getElementById("display-branch");
 const unstagedList = document.getElementById("unstaged-list");
 const stagedList = document.getElementById("staged-list");
@@ -61,8 +59,11 @@ const themeDarkBtn = document.getElementById("theme-dark");
 const checkLight = document.getElementById("check-light");
 const checkDark = document.getElementById("check-dark");
 
-const panelResizer = document.getElementById("panel-resizer");
-const sidebarLeft = document.querySelector(".sidebar-left");
+// --- Resizers ---
+const resizerNav = document.getElementById("resizer-nav");
+const resizerChanges = document.getElementById("resizer-changes");
+const sidebarNav = document.querySelector(".sidebar-nav");
+const sidebarChanges = document.querySelector(".sidebar-changes");
 
 /**
  * Saves the current list of repository paths to localStorage.
@@ -197,21 +198,7 @@ async function setActiveTab(index) {
     if (noRepoView) noRepoView.classList.add("hidden");
     if (repoView) repoView.classList.remove("hidden");
     
-    if (displayName) displayName.textContent = repo.name;
-    if (displayPath) displayPath.textContent = repo.path;
     if (displayBranch) displayBranch.textContent = repo.current_branch;
-
-    if (!repo.head_shorthand) {
-      if (branchContainer) {
-        branchContainer.style.pointerEvents = "none";
-        branchContainer.style.color = "#666";
-      }
-    } else {
-      if (branchContainer) {
-        branchContainer.style.pointerEvents = "auto";
-        branchContainer.style.color = "inherit";
-      }
-    }
 
     if (commitSubjectInput) commitSubjectInput.value = "";
     if (commitBodyInput) commitBodyInput.value = "";
@@ -238,7 +225,6 @@ async function refreshEverything() {
   if (activeTabIndex === -1) return;
   const repoPath = repositories[activeTabIndex].path;
 
-  // Run all fetches in parallel for efficiency
   await Promise.all([
     refreshChanges(),
     refreshBranches(repoPath),
@@ -646,27 +632,29 @@ async function setupEventListeners() {
     });
   });
 
-  // Panel Resizer logic
-  if (panelResizer && sidebarLeft) {
+  // Panel Resizer logic for Nav sidebar
+  if (resizerNav && sidebarNav) {
     let isResizing = false;
-
-    panelResizer.addEventListener("mousedown", (e) => {
-      isResizing = true;
-      document.body.style.cursor = "col-resize";
-    });
-
+    resizerNav.addEventListener("mousedown", () => { isResizing = true; document.body.style.cursor = "col-resize"; });
     document.addEventListener("mousemove", (e) => {
       if (!isResizing) return;
       const newWidth = e.clientX;
-      if (newWidth > 150 && newWidth < 800) {
-        sidebarLeft.style.width = `${newWidth}px`;
-      }
+      if (newWidth > 100 && newWidth < 400) sidebarNav.style.width = `${newWidth}px`;
     });
+    document.addEventListener("mouseup", () => { isResizing = false; document.body.style.cursor = "default"; });
+  }
 
-    document.addEventListener("mouseup", () => {
-      isResizing = false;
-      document.body.style.cursor = "default";
+  // Panel Resizer logic for Changes sidebar
+  if (resizerChanges && sidebarChanges) {
+    let isResizing = false;
+    resizerChanges.addEventListener("mousedown", () => { isResizing = true; document.body.style.cursor = "col-resize"; });
+    document.addEventListener("mousemove", (e) => {
+      if (!isResizing) return;
+      const navWidth = sidebarNav ? sidebarNav.offsetWidth : 0;
+      const newWidth = e.clientX - navWidth - 4; // Subtract nav sidebar and resizer width
+      if (newWidth > 150 && newWidth < 500) sidebarChanges.style.width = `${newWidth}px`;
     });
+    document.addEventListener("mouseup", () => { isResizing = false; document.body.style.cursor = "default"; });
   }
 
   if (branchContainer) {
