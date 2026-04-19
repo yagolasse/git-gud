@@ -5,7 +5,7 @@
  */
 
 const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
+const { open, ask } = window.__TAURI__.dialog;
 const { listen } = window.__TAURI__.event;
 
 /** 
@@ -110,12 +110,12 @@ function initTheme() {
 function setTheme(theme) {
   if (theme === "dark") {
     document.body.classList.add("dark-theme");
-    checkLight.classList.add("hidden");
-    checkDark.classList.remove("hidden");
+    if (checkLight) checkLight.classList.add("hidden");
+    if (checkDark) checkDark.classList.remove("hidden");
   } else {
     document.body.classList.remove("dark-theme");
-    checkLight.classList.remove("hidden");
-    checkDark.classList.add("hidden");
+    if (checkLight) checkLight.classList.remove("hidden");
+    if (checkDark) checkDark.classList.add("hidden");
   }
   localStorage.setItem(THEME_KEY, theme);
 }
@@ -155,6 +155,7 @@ async function handleOpenRepo() {
  * Re-renders the tab bar based on the `repositories` array.
  */
 function renderTabs() {
+  if (!tabsContainer) return;
   tabsContainer.innerHTML = "";
   repositories.forEach((repo, index) => {
     const tab = document.createElement("div");
@@ -185,29 +186,33 @@ async function setActiveTab(index) {
   renderTabs();
   
   if (index === -1) {
-    noRepoView.classList.remove("hidden");
-    repoView.classList.add("hidden");
+    if (noRepoView) noRepoView.classList.remove("hidden");
+    if (repoView) repoView.classList.add("hidden");
   } else {
     const repo = repositories[index];
-    noRepoView.classList.add("hidden");
-    repoView.classList.remove("hidden");
+    if (noRepoView) noRepoView.classList.add("hidden");
+    if (repoView) repoView.classList.remove("hidden");
     
-    displayName.textContent = repo.name;
-    displayPath.textContent = repo.path;
-    displayBranch.textContent = repo.current_branch;
+    if (displayName) displayName.textContent = repo.name;
+    if (displayPath) displayPath.textContent = repo.path;
+    if (displayBranch) displayBranch.textContent = repo.current_branch;
 
     if (!repo.head_shorthand) {
-      branchContainer.style.pointerEvents = "none";
-      branchContainer.style.color = "#666";
+      if (branchContainer) {
+        branchContainer.style.pointerEvents = "none";
+        branchContainer.style.color = "#666";
+      }
     } else {
-      branchContainer.style.pointerEvents = "auto";
-      branchContainer.style.color = "inherit";
+      if (branchContainer) {
+        branchContainer.style.pointerEvents = "auto";
+        branchContainer.style.color = "inherit";
+      }
     }
 
-    commitSubjectInput.value = "";
-    commitBodyInput.value = "";
+    if (commitSubjectInput) commitSubjectInput.value = "";
+    if (commitBodyInput) commitBodyInput.value = "";
     updateCharCount();
-    amendCheckbox.checked = false;
+    if (amendCheckbox) amendCheckbox.checked = false;
 
     refreshChanges();
   }
@@ -225,13 +230,13 @@ async function refreshChanges() {
   if (activeTabIndex === -1) return;
   const path = repositories[activeTabIndex].path;
   
-  unstagedList.innerHTML = "<li>Loading...</li>";
-  stagedList.innerHTML = "<li>Loading...</li>";
+  if (unstagedList) unstagedList.innerHTML = "<li>Loading...</li>";
+  if (stagedList) stagedList.innerHTML = "<li>Loading...</li>";
   
   try {
     const statuses = await invoke("get_repo_status", { path });
-    unstagedList.innerHTML = "";
-    stagedList.innerHTML = "";
+    if (unstagedList) unstagedList.innerHTML = "";
+    if (stagedList) stagedList.innerHTML = "";
     
     const unstaged = statuses.filter(s => !s.staged);
     const staged = statuses.filter(s => s.staged);
@@ -239,16 +244,16 @@ async function refreshChanges() {
     currentUnstagedPaths = unstaged.map(s => s.path);
     currentStagedPaths = staged.map(s => s.path);
 
-    if (unstaged.length === 0) unstagedList.innerHTML = "<li>No unstaged changes</li>";
+    if (unstaged.length === 0 && unstagedList) unstagedList.innerHTML = "<li>No unstaged changes</li>";
     if (staged.length === 0) {
-      stagedList.innerHTML = "<li>No staged changes</li>";
-      commitBtn.disabled = true;
+      if (stagedList) stagedList.innerHTML = "<li>No staged changes</li>";
+      if (commitBtn) commitBtn.disabled = true;
     } else {
-      commitBtn.disabled = false;
+      if (commitBtn) commitBtn.disabled = false;
     }
 
-    unstaged.forEach(file => unstagedList.appendChild(createFileItem(file, false)));
-    staged.forEach(file => stagedList.appendChild(createFileItem(file, true)));
+    if (unstagedList) unstaged.forEach(file => unstagedList.appendChild(createFileItem(file, false)));
+    if (stagedList) staged.forEach(file => stagedList.appendChild(createFileItem(file, true)));
   } catch (err) {
     console.error("Failed to fetch changes:", err);
   }
@@ -330,7 +335,14 @@ async function unstageFiles(filePaths) {
  */
 async function discardUnstagedChanges(filePaths) {
   if (filePaths.length === 0) return;
-  if (!confirm(`Are you sure you want to discard changes in ${filePaths.length} file(s)? This cannot be undone.`)) {
+  
+  // Use native OS dialog for absolute reliability
+  const confirmed = await ask(`Are you sure you want to discard changes in ${filePaths.length} file(s)? This cannot be undone.`, {
+    title: 'Discard Changes',
+    kind: 'warning',
+  });
+
+  if (!confirmed) {
     return;
   }
   
@@ -353,33 +365,35 @@ async function showDiff(file, staged) {
     const repoPath = repositories[activeTabIndex].path;
     const diff = await invoke("get_file_diff", { repoPath, filePath: file, staged });
     
-    diffFilePath.textContent = `${file} (${staged ? "Staged" : "Unstaged"})`;
-    diffContainer.innerHTML = "";
-    
-    if (!diff || diff.trim() === "") {
-      diffContainer.innerHTML = "<div class=\"diff-line diff-line-context\">No changes to show (might be a new untracked file or binary).</div>";
-    } else {
-      const lines = diff.split("\n");
-      lines.forEach(line => {
-        const div = document.createElement("div");
-        div.className = "diff-line";
-        
-        if (line.startsWith("+")) {
-          div.classList.add("diff-line-added");
-        } else if (line.startsWith("-")) {
-          div.classList.add("diff-line-removed");
-        } else if (line.startsWith("@@")) {
-          div.classList.add("diff-line-hunk");
-        } else {
-          div.classList.add("diff-line-context");
-        }
-        
-        div.textContent = line;
-        diffContainer.appendChild(div);
-      });
+    if (diffFilePath) diffFilePath.textContent = `${file} (${staged ? "Staged" : "Unstaged"})`;
+    if (diffContainer) {
+      diffContainer.innerHTML = "";
+      
+      if (!diff || diff.trim() === "") {
+        diffContainer.innerHTML = "<div class=\"diff-line diff-line-context\">No changes to show (might be a new untracked file or binary).</div>";
+      } else {
+        const lines = diff.split("\n");
+        lines.forEach(line => {
+          const div = document.createElement("div");
+          div.className = "diff-line";
+          
+          if (line.startsWith("+")) {
+            div.classList.add("diff-line-added");
+          } else if (line.startsWith("-")) {
+            div.classList.add("diff-line-removed");
+          } else if (line.startsWith("@@")) {
+            div.classList.add("diff-line-hunk");
+          } else {
+            div.classList.add("diff-line-context");
+          }
+          
+          div.textContent = line;
+          diffContainer.appendChild(div);
+        });
+      }
     }
     
-    diffModal.classList.remove("hidden");
+    if (diffModal) diffModal.classList.remove("hidden");
   } catch (err) {
     alert("Error fetching diff: " + err);
   }
@@ -390,20 +404,23 @@ async function handleRenameBranch() {
   const repo = repositories[activeTabIndex];
   if (!repo || !repo.head_shorthand) return;
 
-  oldBranchDisplay.textContent = repo.head_shorthand;
-  newBranchInput.value = repo.head_shorthand;
-  renameModal.classList.remove("hidden");
-  newBranchInput.focus();
-  branchMenu.classList.add("hidden");
+  if (oldBranchDisplay) oldBranchDisplay.textContent = repo.head_shorthand;
+  if (newBranchInput) {
+    newBranchInput.value = repo.head_shorthand;
+    newBranchInput.focus();
+  }
+  if (renameModal) renameModal.classList.remove("hidden");
+  if (branchMenu) branchMenu.classList.add("hidden");
 }
 
 /** Executes the branch rename via Rust. */
 async function confirmRename() {
   const repo = repositories[activeTabIndex];
+  if (!newBranchInput) return;
   const newName = newBranchInput.value.trim();
   
   if (!newName || newName === repo.head_shorthand) {
-    renameModal.classList.add("hidden");
+    if (renameModal) renameModal.classList.add("hidden");
     return;
   }
 
@@ -416,9 +433,9 @@ async function confirmRename() {
     
     repo.current_branch = newName;
     repo.head_shorthand = newName;
-    displayBranch.textContent = newName;
+    if (displayBranch) displayBranch.textContent = newName;
     
-    renameModal.classList.add("hidden");
+    if (renameModal) renameModal.classList.add("hidden");
   } catch (err) {
     alert("Error renaming branch: " + err);
   }
@@ -428,23 +445,24 @@ async function confirmRename() {
  * Assembles and executes a Git commit.
  */
 async function handleCommit() {
+  if (!commitSubjectInput) return;
   const subject = commitSubjectInput.value.trim();
   if (!subject) {
     alert("Please enter a commit subject.");
     return;
   }
 
-  const body = commitBodyInput.value.trim();
+  const body = commitBodyInput ? commitBodyInput.value.trim() : "";
   const fullMessage = body ? `${subject}\n\n${body}` : subject;
 
   try {
     const repoPath = repositories[activeTabIndex].path;
-    const amend = amendCheckbox.checked;
+    const amend = amendCheckbox ? amendCheckbox.checked : false;
     await invoke("commit_changes", { repoPath, message: fullMessage, amend });
     
-    commitSubjectInput.value = "";
-    commitBodyInput.value = "";
-    amendCheckbox.checked = false;
+    if (commitSubjectInput) commitSubjectInput.value = "";
+    if (commitBodyInput) commitBodyInput.value = "";
+    if (amendCheckbox) amendCheckbox.checked = false;
     updateCharCount();
     refreshChanges();
   } catch (err) {
@@ -454,7 +472,8 @@ async function handleCommit() {
 
 /** Updates the subject character counter UI. */
 function updateCharCount() {
-  const count = commitSubjectInput.length > 0 ? commitSubjectInput.value.length : 0;
+  if (!commitSubjectInput || !charCountDisplay) return;
+  const count = commitSubjectInput.value ? commitSubjectInput.value.length : 0;
   charCountDisplay.textContent = `${count} / 72`;
 }
 
@@ -462,14 +481,14 @@ function updateCharCount() {
  * Handles the "Amend" checkbox state change, fetching previous commit message if needed.
  */
 async function handleAmendChange() {
-  if (amendCheckbox.checked) {
+  if (amendCheckbox && amendCheckbox.checked) {
     try {
       const repoPath = repositories[activeTabIndex].path;
       const fullMessage = await invoke("get_last_commit_message", { repoPath });
       
       const parts = fullMessage.split("\n\n");
-      commitSubjectInput.value = parts[0].trim();
-      commitBodyInput.value = parts.length > 1 ? parts.slice(1).join("\n\n").trim() : "";
+      if (commitSubjectInput) commitSubjectInput.value = parts[0].trim();
+      if (commitBodyInput) commitBodyInput.value = parts.length > 1 ? parts.slice(1).join("\n\n").trim() : "";
       
       updateCharCount();
     } catch (err) {
@@ -477,8 +496,8 @@ async function handleAmendChange() {
       amendCheckbox.checked = false;
     }
   } else {
-    commitSubjectInput.value = "";
-    commitBodyInput.value = "";
+    if (commitSubjectInput) commitSubjectInput.value = "";
+    if (commitBodyInput) commitBodyInput.value = "";
     updateCharCount();
   }
 }
@@ -506,47 +525,63 @@ function closeTab(index) {
  * Initializes all event listeners and background event listeners.
  */
 async function setupEventListeners() {
-  document.getElementById("menu-open").addEventListener("click", handleOpenRepo);
-  document.getElementById("stage-all-btn").addEventListener("click", () => stageFiles(currentUnstagedPaths));
-  document.getElementById("unstage-all-btn").addEventListener("click", () => unstageFiles(currentStagedPaths));
+  const menuOpen = document.getElementById("menu-open");
+  if (menuOpen) menuOpen.addEventListener("click", handleOpenRepo);
   
-  branchContainer.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    branchMenu.classList.toggle("hidden");
-  });
+  const discardAllBtn = document.getElementById("discard-all-btn");
+  if (discardAllBtn) discardAllBtn.addEventListener("click", () => discardUnstagedChanges(currentUnstagedPaths));
+  
+  const stageAllBtn = document.getElementById("stage-all-btn");
+  if (stageAllBtn) stageAllBtn.addEventListener("click", () => stageFiles(currentUnstagedPaths));
+  
+  const unstageAllBtn = document.getElementById("unstage-all-btn");
+  if (unstageAllBtn) unstageAllBtn.addEventListener("click", () => unstageFiles(currentStagedPaths));
+  
+  if (branchContainer) {
+    branchContainer.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (branchMenu) branchMenu.classList.toggle("hidden");
+    });
+  }
 
   document.addEventListener("click", () => {
-    branchMenu.classList.add("hidden");
+    if (branchMenu) branchMenu.classList.add("hidden");
   });
 
-  branchMenu.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
+  if (branchMenu) {
+    branchMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+  }
 
-  menuRenameBranch.addEventListener("click", (e) => {
-    e.stopPropagation();
-    handleRenameBranch();
-  });
+  if (menuRenameBranch) {
+    menuRenameBranch.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleRenameBranch();
+    });
+  }
 
-  cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
-  confirmRenameBtn.addEventListener("click", confirmRename);
+  if (cancelRenameBtn) cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
+  if (confirmRenameBtn) confirmRenameBtn.addEventListener("click", confirmRename);
 
-  closeDiffBtn.addEventListener("click", () => diffModal.classList.add("hidden"));
+  if (closeDiffBtn) closeDiffBtn.addEventListener("click", () => diffModal.classList.add("hidden"));
   
   // Close diff modal when clicking outside
-  diffModal.addEventListener("click", (e) => {
-    if (e.target === diffModal) {
-      diffModal.classList.add("hidden");
-    }
-  });
+  if (diffModal) {
+    diffModal.addEventListener("click", (e) => {
+      if (e.target === diffModal) {
+        diffModal.classList.add("hidden");
+      }
+    });
+  }
 
-  commitSubjectInput.addEventListener("input", updateCharCount);
-  commitBtn.addEventListener("click", handleCommit);
-  amendCheckbox.addEventListener("change", handleAmendChange);
+  if (commitSubjectInput) commitSubjectInput.addEventListener("input", updateCharCount);
+  if (commitBtn) commitBtn.addEventListener("click", handleCommit);
+  if (amendCheckbox) amendCheckbox.addEventListener("change", handleAmendChange);
 
-  themeLightBtn.addEventListener("click", () => setTheme("light"));
-  themeDarkBtn.addEventListener("click", () => setTheme("dark"));
+  if (themeLightBtn) themeLightBtn.addEventListener("click", () => setTheme("light"));
+  if (themeDarkBtn) themeDarkBtn.addEventListener("click", () => setTheme("dark"));
 
   // Listen for background repository updates emitted by the Rust file watcher
   await listen("repo-updated", (event) => {
@@ -556,7 +591,7 @@ async function setupEventListeners() {
       invoke("open_repository", { path: updatedPath }).then(repoInfo => {
         repositories[activeTabIndex].current_branch = repoInfo.current_branch;
         repositories[activeTabIndex].head_shorthand = repoInfo.head_shorthand;
-        displayBranch.textContent = repoInfo.current_branch;
+        if (displayBranch) displayBranch.textContent = repoInfo.current_branch;
         refreshChanges();
       });
     } else {

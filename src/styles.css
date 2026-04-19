@@ -239,6 +239,21 @@ body {
   padding-bottom: 0;
 }
 
+.column-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.danger-btn {
+  color: var(--danger-color) !important;
+  border-color: var(--danger-color) !important;
+}
+
+.danger-btn:hover {
+  background: var(--danger-color) !important;
+  color: white !important;
+}
+
 .small-btn {
   padding: 4px 8px;
   font-size: 11px;

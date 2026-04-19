@@ -90,7 +90,10 @@
     <div class="changes-column">
       <div class="column-header">
         <h3>Unstaged Changes</h3>
-        <button id="stage-all-btn" class="small-btn">Stage All</button>
+        <div class="column-actions">
+          <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
+          <button id="stage-all-btn" class="small-btn">Stage All</button>
+        </div>
       </div>
       <ul id="unstaged-list" class="file-list">
         <!-- Unstaged changes will be injected here -->
