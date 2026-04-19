@@ -281,6 +281,55 @@ fn discard_unstaged_changes(repo_path: String, file_paths: Vec<String>) -> Resul
     Ok(())
 }
 
+/// Returns a unified diff for a specific file.
+/// 
+/// # Arguments
+/// * `repo_path` - Path to the repository.
+/// * `file_path` - The relative path of the file to diff.
+/// * `staged` - If true, returns the staged diff (HEAD vs Index). 
+///              If false, returns the unstaged diff (Index vs Working Directory).
+#[tauri::command]
+fn get_file_diff(repo_path: String, file_path: String, staged: bool) -> Result<String, String> {
+    let repo = Repository::discover(&repo_path).map_err(|e| format!("Failed to find repository: {}", e))?;
+    
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(&file_path);
+    // Ensure we get the full content of the diff
+    opts.context_lines(3);
+    opts.interhunk_lines(1);
+
+    let diff = if staged {
+        let head = repo.head().ok();
+        let tree = match head {
+            Some(h) => Some(h.peel_to_tree().map_err(|e| format!("Failed to peel HEAD to tree: {}", e))?),
+            None => None, // Initial commit case
+        };
+        repo.diff_tree_to_index(tree.as_ref(), None, Some(&mut opts))
+            .map_err(|e| format!("Failed to get staged diff: {}", e))?
+    } else {
+        repo.diff_index_to_workdir(None, Some(&mut opts))
+            .map_err(|e| format!("Failed to get unstaged diff: {}", e))?
+    };
+
+    let mut diff_text = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let origin = line.origin();
+        match origin {
+            '+' | '-' | ' ' => {
+                diff_text.push(origin);
+                diff_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
+            }
+            'H' => {
+                diff_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
+            }
+            _ => {} // Skip other line types like headers for now
+        }
+        true
+    }).map_err(|e| format!("Failed to format diff: {}", e))?;
+
+    Ok(diff_text)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -297,7 +346,8 @@ pub fn run() {
             discard_unstaged_changes,
             rename_branch,
             commit_changes,
-            get_last_commit_message
+            get_last_commit_message,
+            get_file_diff
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

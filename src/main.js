@@ -36,6 +36,11 @@ const branchContainer = document.getElementById("branch-container");
 const branchMenu = document.getElementById("branch-menu");
 const menuRenameBranch = document.getElementById("menu-rename-branch");
 
+const diffModal = document.getElementById("diff-modal");
+const diffFilePath = document.getElementById("diff-file-path");
+const diffContainer = document.getElementById("diff-container");
+const closeDiffBtn = document.getElementById("close-diff-btn");
+
 const renameModal = document.getElementById("rename-modal");
 const oldBranchDisplay = document.getElementById("old-branch-name-display");
 const newBranchInput = document.getElementById("new-branch-name-input");
@@ -240,13 +245,14 @@ function createFileItem(file, isStaged) {
   li.innerHTML = `
     <div class="file-info">
       <span class="status-tag ${statusClass}">${file.status[0]}</span>
-      <span class="file-path" title="${file.path}">${file.path}</span>
+      <span class="file-path clickable-path" title="Click to view diff">${file.path}</span>
     </div>
     <div class="file-actions">
       ${actionsHtml}
     </div>
   `;
   
+  li.querySelector(".clickable-path").addEventListener("click", () => showDiff(file.path, isStaged));
   li.querySelector(".primary-action").addEventListener("click", () => actionFn([file.path]));
   
   if (!isStaged) {
@@ -302,6 +308,48 @@ async function discardUnstagedChanges(filePaths) {
     refreshChanges();
   } catch (err) {
     alert("Error discarding changes: " + err);
+  }
+}
+
+/**
+ * Fetches and displays the diff for a specific file.
+ * @param {string} file - The relative path of the file.
+ * @param {boolean} staged - Whether to show the staged or unstaged diff.
+ */
+async function showDiff(file, staged) {
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    const diff = await invoke("get_file_diff", { repoPath, filePath: file, staged });
+    
+    diffFilePath.textContent = `${file} (${staged ? "Staged" : "Unstaged"})`;
+    diffContainer.innerHTML = "";
+    
+    if (!diff || diff.trim() === "") {
+      diffContainer.innerHTML = "<div class=\"diff-line diff-line-context\">No changes to show (might be a new untracked file or binary).</div>";
+    } else {
+      const lines = diff.split("\n");
+      lines.forEach(line => {
+        const div = document.createElement("div");
+        div.className = "diff-line";
+        
+        if (line.startsWith("+")) {
+          div.classList.add("diff-line-added");
+        } else if (line.startsWith("-")) {
+          div.classList.add("diff-line-removed");
+        } else if (line.startsWith("@@")) {
+          div.classList.add("diff-line-hunk");
+        } else {
+          div.classList.add("diff-line-context");
+        }
+        
+        div.textContent = line;
+        diffContainer.appendChild(div);
+      });
+    }
+    
+    diffModal.classList.remove("hidden");
+  } catch (err) {
+    alert("Error fetching diff: " + err);
   }
 }
 
@@ -451,6 +499,15 @@ async function setupEventListeners() {
 
   cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
   confirmRenameBtn.addEventListener("click", confirmRename);
+
+  closeDiffBtn.addEventListener("click", () => diffModal.classList.add("hidden"));
+  
+  // Close diff modal when clicking outside
+  diffModal.addEventListener("click", (e) => {
+    if (e.target === diffModal) {
+      diffModal.classList.add("hidden");
+    }
+  });
 
   commitSubjectInput.addEventListener("input", updateCharCount);
   commitBtn.addEventListener("click", handleCommit);

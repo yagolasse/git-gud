@@ -220,6 +220,15 @@ body {
   text-overflow: ellipsis;
 }
 
+.clickable-path {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.clickable-path:hover {
+  color: #007aff;
+}
+
 .file-actions {
   display: flex;
   gap: 5px;
@@ -335,6 +344,74 @@ body {
   border-radius: 8px;
   box-shadow: 0 4px 15px rgba(0,0,0,0.2);
   min-width: 300px;
+}
+
+.diff-modal-content {
+  width: 90vw;
+  max-width: 1000px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-icon {
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+}
+
+.close-icon:hover {
+  color: #333;
+}
+
+.diff-view {
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: auto;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre;
+  flex: 1;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 10px;
+}
+
+.diff-line-added {
+  background-color: #e6ffec;
+  color: #22863a;
+}
+
+.diff-line-removed {
+  background-color: #ffeef0;
+  color: #cb2431;
+}
+
+.diff-line-hunk {
+  background-color: #f1f8ff;
+  color: #0366d6;
+  font-weight: bold;
+}
+
+.diff-line-context {
+  color: #6a737d;
 }
 
 .modal-content h3 {
