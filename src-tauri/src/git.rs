@@ -221,4 +221,100 @@ mod tests {
         assert_eq!(statuses[0].status, "Added");
         assert_eq!(statuses[0].staged, false);
     }
+
+    #[test]
+    fn test_stage_and_unstage() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        // 1. Create file
+        let file_name = "stage_test.txt";
+        let file_path = dir.path().join(file_name);
+        File::create(&file_path).unwrap();
+
+        // 2. Stage file
+        stage_files(&repo, vec![file_name.to_string()]).unwrap();
+        let statuses = get_repo_status(&repo).unwrap();
+        assert!(statuses[0].staged);
+
+        // 3. Create a commit so we have a HEAD to unstage against
+        let signature = repo.signature().unwrap();
+        let mut index = repo.index().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+
+        // 4. Modify the file and stage it again
+        {
+            let mut file = std::fs::OpenOptions::new().write(true).open(&file_path).unwrap();
+            writeln!(file, "Modified content").unwrap();
+        }
+        stage_files(&repo, vec![file_name.to_string()]).unwrap();
+        assert!(get_repo_status(&repo).unwrap()[0].staged);
+
+        // 5. Unstage file (reset to HEAD)
+        unstage_files(&repo, vec![file_name.to_string()]).unwrap();
+        let statuses = get_repo_status(&repo).unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert!(!statuses[0].staged);
+    }
+
+    #[test]
+    fn test_discard_changes() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        // 1. Create and commit a file
+        let file_name = "discard_test.txt";
+        let file_path = dir.path().join(file_name);
+        {
+            let mut file = File::create(&file_path).unwrap();
+            writeln!(file, "Original Content").unwrap();
+        }
+        stage_files(&repo, vec![file_name.to_string()]).unwrap();
+        
+        let signature = repo.signature().unwrap();
+        let mut index = repo.index().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+
+        // 2. Modify the file
+        {
+            let mut file = File::create(&file_path).unwrap();
+            writeln!(file, "Dirty Content").unwrap();
+        }
+        
+        // 3. Discard changes
+        discard_unstaged_changes(&repo, vec![file_name.to_string()]).unwrap();
+
+        // 4. Verify content is restored
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content.trim(), "Original Content");
+    }
+
+    #[test]
+    fn test_diff_generation() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        let file_name = "diff_test.txt";
+        let file_path = dir.path().join(file_name);
+        
+        // Create initial file
+        {
+            let mut file = File::create(&file_path).unwrap();
+            writeln!(file, "Line 1").unwrap();
+        }
+        stage_files(&repo, vec![file_name.to_string()]).unwrap();
+
+        // Modify file
+        {
+            let mut file = std::fs::OpenOptions::new().append(true).open(&file_path).unwrap();
+            writeln!(file, "Line 2").unwrap();
+        }
+
+        let diff = get_file_diff(&repo, file_name, false).unwrap();
+        assert!(diff.contains("+Line 2"));
+    }
 }
