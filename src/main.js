@@ -22,6 +22,8 @@ let activeTabIndex = -1;
 
 /** Key used for persistent storage of open repo paths. */
 const STORAGE_KEY = "git-gud-repos";
+/** Key used for persistent storage of theme preference. */
+const THEME_KEY = "git-gud-theme";
 
 // --- DOM Elements ---
 const tabsContainer = document.getElementById("tabs-container");
@@ -52,6 +54,11 @@ const commitBodyInput = document.getElementById("commit-body");
 const charCountDisplay = document.getElementById("char-count");
 const amendCheckbox = document.getElementById("amend-checkbox");
 const commitBtn = document.getElementById("commit-btn");
+
+const themeLightBtn = document.getElementById("theme-light");
+const themeDarkBtn = document.getElementById("theme-dark");
+const checkLight = document.getElementById("check-light");
+const checkDark = document.getElementById("check-dark");
 
 /**
  * Saves the current list of repository paths to localStorage.
@@ -86,6 +93,31 @@ async function loadFromStorage() {
       console.error("Failed to parse saved repositories:", e);
     }
   }
+}
+
+/**
+ * Initializes the theme based on saved preference or system default.
+ */
+function initTheme() {
+  const savedTheme = localStorage.getItem(THEME_KEY) || "light";
+  setTheme(savedTheme);
+}
+
+/**
+ * Sets the application theme.
+ * @param {'light' | 'dark'} theme 
+ */
+function setTheme(theme) {
+  if (theme === "dark") {
+    document.body.classList.add("dark-theme");
+    checkLight.classList.add("hidden");
+    checkDark.classList.remove("hidden");
+  } else {
+    document.body.classList.remove("dark-theme");
+    checkLight.classList.remove("hidden");
+    checkDark.classList.add("hidden");
+  }
+  localStorage.setItem(THEME_KEY, theme);
 }
 
 /**
@@ -422,7 +454,7 @@ async function handleCommit() {
 
 /** Updates the subject character counter UI. */
 function updateCharCount() {
-  const count = commitSubjectInput.value.length;
+  const count = commitSubjectInput.length > 0 ? commitSubjectInput.value.length : 0;
   charCountDisplay.textContent = `${count} / 72`;
 }
 
@@ -513,6 +545,9 @@ async function setupEventListeners() {
   commitBtn.addEventListener("click", handleCommit);
   amendCheckbox.addEventListener("change", handleAmendChange);
 
+  themeLightBtn.addEventListener("click", () => setTheme("light"));
+  themeDarkBtn.addEventListener("click", () => setTheme("dark"));
+
   // Listen for background repository updates emitted by the Rust file watcher
   await listen("repo-updated", (event) => {
     const updatedPath = event.payload;
@@ -538,6 +573,7 @@ async function setupEventListeners() {
 
 // Bootstrap the application
 window.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   setupEventListeners();
   loadFromStorage();
 });
