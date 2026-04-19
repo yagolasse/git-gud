@@ -43,86 +43,86 @@
           <p>Go to File > Open Repository... to get started.</p>
         </div>
       </div>
-<div id="repo-view" class="hidden">
-  <div class="repo-header">
-    <div class="repo-info-card">
-      <h2>Repository Details</h2>
-      <p><strong>Name:</strong> <span id="display-name"></span></p>
-      <p><strong>Path:</strong> <span id="display-path"></span></p>
-      <p><strong>Current Branch:</strong> 
-        <span id="branch-container" class="clickable-branch">
-          <span id="display-branch"></span>
-          <div id="branch-menu" class="context-menu hidden">
-            <div class="menu-item" id="menu-rename-branch">Rename Branch...</div>
-          </div>
-        </span>
-      </p>
 
-      </div>
+      <div id="repo-view" class="hidden">
+        <div class="main-layout">
+          <!-- Left Sidebar: Changes -->
+          <div class="sidebar-left">
+            <div class="changes-column">
+              <div class="column-header">
+                <h3>Unstaged Changes</h3>
+                <div class="column-actions">
+                  <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
+                  <button id="stage-all-btn" class="small-btn">Stage All</button>
+                </div>
+              </div>
+              <ul id="unstaged-list" class="file-list">
+                <!-- Unstaged changes will be injected here -->
+              </ul>
+            </div>
+
+            <div class="changes-column">
+              <div class="column-header">
+                <h3>Staged Changes</h3>
+                <button id="unstage-all-btn" class="small-btn">Unstage All</button>
+              </div>
+              <ul id="staged-list" class="file-list">
+                <!-- Staged changes will be injected here -->
+              </ul>
+            </div>
+
+            <!-- Current Branch Info (Small footer for sidebar) -->
+            <div class="sidebar-footer">
+              <strong>Branch:</strong>
+              <span id="branch-container" class="clickable-branch">
+                <span id="display-branch"></span>
+                <div id="branch-menu" class="context-menu hidden">
+                  <div class="menu-item" id="menu-rename-branch">Rename Branch...</div>
+                </div>
+              </span>
+              <span id="display-name" class="hidden"></span>
+              <span id="display-path" class="hidden"></span>
+            </div>
+          </div>
+
+          <!-- Right Content: Diff and Commit -->
+          <div class="main-content-right">
+            <div class="inline-diff-view">
+              <div class="diff-header">
+                <h3>Diff: <span id="diff-file-path">Select a file to view changes</span></h3>
+              </div>
+              <div id="diff-container" class="diff-view">
+                <div class="diff-placeholder">No file selected</div>
+              </div>
+            </div>
+
+            <div class="commit-section">
+              <input type="text" id="commit-subject" placeholder="Subject (max 72 chars)" maxlength="72">
+              <textarea id="commit-body" placeholder="Description (optional)..."></textarea>
+              <div class="commit-footer">
+                <span id="char-count">0 / 72</span>
+                <label class="amend-label">
+                  <input type="checkbox" id="amend-checkbox"> Amend
+                </label>
+                <button id="commit-btn" class="primary-btn">Commit</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Rename Branch Modal -->
       <div id="rename-modal" class="modal hidden">
-      <div class="modal-content">
-      <h3>Rename Branch</h3>
-      <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
-      <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
-      <div class="modal-actions">
-        <button id="cancel-rename-btn">Cancel</button>
-        <button id="confirm-rename-btn" class="primary-btn">Rename</button>
-      </div>
-      </div>
-      </div>
-
-      <!-- Diff Modal -->
-      <div id="diff-modal" class="modal hidden">
-        <div class="modal-content diff-modal-content">
-          <div class="modal-header">
-            <h3>File Diff: <span id="diff-file-path"></span></h3>
-            <span id="close-diff-btn" class="close-icon">×</span>
-          </div>
-          <div id="diff-container" class="diff-view">
-            <!-- Diff lines will be injected here -->
+        <div class="modal-content">
+          <h3>Rename Branch</h3>
+          <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
+          <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
+          <div class="modal-actions">
+            <button id="cancel-rename-btn">Cancel</button>
+            <button id="confirm-rename-btn" class="primary-btn">Rename</button>
           </div>
         </div>
       </div>
-  <div class="changes-section">
-    <div class="changes-column">
-      <div class="column-header">
-        <h3>Unstaged Changes</h3>
-        <div class="column-actions">
-          <button id="discard-all-btn" class="small-btn danger-btn">Discard All</button>
-          <button id="stage-all-btn" class="small-btn">Stage All</button>
-        </div>
-      </div>
-      <ul id="unstaged-list" class="file-list">
-        <!-- Unstaged changes will be injected here -->
-      </ul>
-    </div>
-    <div class="changes-column">
-      <div class="column-header">
-        <h3>Staged Changes</h3>
-        <button id="unstage-all-btn" class="small-btn">Unstage All</button>
-      </div>
-      <ul id="staged-list" class="file-list">
-        <!-- Staged changes will be injected here -->
-      </ul>
-      <div class="commit-section">
-        <input type="text" id="commit-subject" placeholder="Subject (max 72 chars)" maxlength="72">
-        <textarea id="commit-body" placeholder="Description (optional)..."></textarea>
-        <div class="commit-footer">
-          <span id="char-count">0 / 72</span>
-          <label class="amend-label">
-            <input type="checkbox" id="amend-checkbox"> Amend
-          </label>
-          <button id="commit-btn" class="primary-btn">Commit</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-</div>
-
     </main>
   </body>
 </html>

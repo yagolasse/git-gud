@@ -38,10 +38,8 @@ const branchContainer = document.getElementById("branch-container");
 const branchMenu = document.getElementById("branch-menu");
 const menuRenameBranch = document.getElementById("menu-rename-branch");
 
-const diffModal = document.getElementById("diff-modal");
 const diffFilePath = document.getElementById("diff-file-path");
 const diffContainer = document.getElementById("diff-container");
-const closeDiffBtn = document.getElementById("close-diff-btn");
 
 const renameModal = document.getElementById("rename-modal");
 const oldBranchDisplay = document.getElementById("old-branch-name-display");
@@ -213,6 +211,10 @@ async function setActiveTab(index) {
     if (commitBodyInput) commitBodyInput.value = "";
     updateCharCount();
     if (amendCheckbox) amendCheckbox.checked = false;
+
+    // Reset diff view
+    if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
+    if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
 
     refreshChanges();
   }
@@ -391,9 +393,9 @@ async function showDiff(file, staged) {
           diffContainer.appendChild(div);
         });
       }
+      // Scroll to top of diff
+      diffContainer.scrollTop = 0;
     }
-    
-    if (diffModal) diffModal.classList.remove("hidden");
   } catch (err) {
     alert("Error fetching diff: " + err);
   }
@@ -465,6 +467,10 @@ async function handleCommit() {
     if (amendCheckbox) amendCheckbox.checked = false;
     updateCharCount();
     refreshChanges();
+    
+    // Clear diff after commit
+    if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
+    if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
   } catch (err) {
     alert("Error committing: " + err);
   }
@@ -564,17 +570,6 @@ async function setupEventListeners() {
 
   if (cancelRenameBtn) cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
   if (confirmRenameBtn) confirmRenameBtn.addEventListener("click", confirmRename);
-
-  if (closeDiffBtn) closeDiffBtn.addEventListener("click", () => diffModal.classList.add("hidden"));
-  
-  // Close diff modal when clicking outside
-  if (diffModal) {
-    diffModal.addEventListener("click", (e) => {
-      if (e.target === diffModal) {
-        diffModal.classList.add("hidden");
-      }
-    });
-  }
 
   if (commitSubjectInput) commitSubjectInput.addEventListener("input", updateCharCount);
   if (commitBtn) commitBtn.addEventListener("click", handleCommit);
