@@ -89,3 +89,21 @@ pub fn checkout_branch(repo_path: String, branch_name: String, is_remote: bool) 
     let repo = git::get_repository(&repo_path)?;
     git::checkout_branch(&repo, &branch_name, is_remote)
 }
+
+#[tauri::command]
+pub fn fetch_remote(repo_path: String, remote_name: Option<String>) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::fetch_remote(&repo, remote_name)
+}
+
+#[tauri::command]
+pub fn push_branch(repo_path: String, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::push_branch(&repo, remote_name, branch_name)
+}
+
+#[tauri::command]
+pub fn pull_branch(repo_path: String, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::pull_branch(&repo, remote_name, branch_name)
+}

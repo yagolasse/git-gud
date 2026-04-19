@@ -298,6 +298,22 @@ body {
   transition: transform 0.2s;
 }
 
+.section-header .branch-actions {
+  display: flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.section-header .branch-actions .small-btn {
+  padding: 1px 4px;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.section-header .branch-actions .small-btn:hover {
+  opacity: 1;
+}
+
 .section-content {
   display: flex;
   flex-direction: column;
@@ -661,6 +677,35 @@ body {
 
 .modal-actions .primary-btn:hover {
   background: var(--accent-hover);
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1001;
+  min-width: 150px;
+  padding: 5px 0;
+}
+
+.context-menu-item {
+  padding: 8px 15px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.context-menu-item:hover {
+  background: var(--accent-color);
+  color: var(--text-on-primary);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 5px 0;
 }
 
 .diff-line {

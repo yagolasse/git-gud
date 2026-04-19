@@ -20,6 +20,13 @@ let repositories = [];
  */
 let activeTabIndex = -1;
 
+/** Branch name for context menu actions. */
+let contextMenuBranch = null;
+/** Whether the context menu branch is remote. */
+let contextMenuIsRemote = false;
+/** Old branch name for rename operation. */
+let renameOldBranch = null;
+
 /** Key used for persistent storage of open repo paths. */
 const STORAGE_KEY = "git-gud-repos";
 /** Key used for persistent storage of theme preference. */
@@ -35,9 +42,7 @@ const stagedList = document.getElementById("staged-list");
 const branchesList = document.getElementById("branches-list");
 const remotesList = document.getElementById("remotes-list");
 const stashesList = document.getElementById("stashes-list");
-const branchContainer = document.getElementById("branch-container");
-const branchMenu = document.getElementById("branch-menu");
-const menuRenameBranch = document.getElementById("menu-rename-branch");
+
 
 const diffFilePath = document.getElementById("diff-file-path");
 const diffContainer = document.getElementById("diff-container");
@@ -53,6 +58,16 @@ const commitBodyInput = document.getElementById("commit-body");
 const charCountDisplay = document.getElementById("char-count");
 const amendCheckbox = document.getElementById("amend-checkbox");
 const commitBtn = document.getElementById("commit-btn");
+
+const fetchBtn = document.getElementById("fetch-btn");
+const pullBtn = document.getElementById("pull-btn");
+const pushBtn = document.getElementById("push-btn");
+
+const branchContextMenu = document.getElementById("branch-context-menu");
+const contextFetch = document.getElementById("context-fetch");
+const contextPull = document.getElementById("context-pull");
+const contextPush = document.getElementById("context-push");
+const contextRename = document.getElementById("context-rename");
 
 const themeLightBtn = document.getElementById("theme-light");
 const themeDarkBtn = document.getElementById("theme-dark");
@@ -288,6 +303,8 @@ async function refreshBranches(repoPath) {
     branches.forEach(branch => {
       const li = document.createElement("li");
       li.className = `sidebar-item ${branch.is_current ? "active" : ""}`;
+      li.dataset.branchName = branch.name;
+      li.dataset.isRemote = branch.is_remote;
       // Generate status icons for local branches with upstream
       let statusHtml = '';
       if (!branch.is_remote && branch.upstream) {
@@ -533,24 +550,35 @@ async function showDiff(file, staged) {
 /** Opens the rename branch modal. */
 async function handleRenameBranch() {
   const repo = repositories[activeTabIndex];
-  if (!repo || !repo.head_shorthand) return;
-
-  if (oldBranchDisplay) oldBranchDisplay.textContent = repo.head_shorthand;
+  if (!repo) return;
+  
+  // Determine which branch to rename
+  let branchToRename = null;
+  if (contextMenuBranch && !contextMenuIsRemote) {
+    branchToRename = contextMenuBranch;
+  } else if (repo.head_shorthand) {
+    branchToRename = repo.head_shorthand;
+  } else {
+    return;
+  }
+  
+  renameOldBranch = branchToRename;
+  
+  if (oldBranchDisplay) oldBranchDisplay.textContent = branchToRename;
   if (newBranchInput) {
-    newBranchInput.value = repo.head_shorthand;
+    newBranchInput.value = branchToRename;
     newBranchInput.focus();
   }
   if (renameModal) renameModal.classList.remove("hidden");
-  if (branchMenu) branchMenu.classList.add("hidden");
 }
 
 /** Executes the branch rename via Rust. */
 async function confirmRename() {
   const repo = repositories[activeTabIndex];
-  if (!newBranchInput) return;
+  if (!newBranchInput || !renameOldBranch) return;
   const newName = newBranchInput.value.trim();
   
-  if (!newName || newName === repo.head_shorthand) {
+  if (!newName || newName === renameOldBranch) {
     if (renameModal) renameModal.classList.add("hidden");
     return;
   }
@@ -558,13 +586,16 @@ async function confirmRename() {
   try {
     await invoke("rename_branch", { 
       repoPath: repo.path, 
-      oldName: repo.head_shorthand, 
+      oldName: renameOldBranch, 
       newName 
     });
     
-    repo.current_branch = newName;
-    repo.head_shorthand = newName;
-    if (displayBranch) displayBranch.textContent = newName;
+    // Update repository info if the renamed branch is the current branch
+    if (repo.head_shorthand === renameOldBranch) {
+      repo.current_branch = newName;
+      repo.head_shorthand = newName;
+      if (displayBranch) displayBranch.textContent = newName;
+    }
     
     if (renameModal) renameModal.classList.add("hidden");
     refreshBranches(repo.path);
@@ -657,6 +688,48 @@ function closeTab(index) {
 }
 
 /**
+ * Fetches from remote(s).
+ */
+async function handleFetch() {
+  if (activeTabIndex === -1) return;
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("fetch_remote", { repoPath, remoteName: null });
+    refreshEverything();
+  } catch (err) {
+    alert("Error fetching: " + err);
+  }
+}
+
+/**
+ * Pushes current branch to upstream.
+ */
+async function handlePush() {
+  if (activeTabIndex === -1) return;
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("push_branch", { repoPath, remoteName: null, branchName: null });
+    refreshEverything();
+  } catch (err) {
+    alert("Error pushing: " + err);
+  }
+}
+
+/**
+ * Pulls current branch from upstream.
+ */
+async function handlePull() {
+  if (activeTabIndex === -1) return;
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("pull_branch", { repoPath, remoteName: null, branchName: null });
+    refreshEverything();
+  } catch (err) {
+    alert("Error pulling: " + err);
+  }
+}
+
+/**
  * Initializes all event listeners and background event listeners.
  */
 async function setupEventListeners() {
@@ -671,6 +744,10 @@ async function setupEventListeners() {
   
   const unstageAllBtn = document.getElementById("unstage-all-btn");
   if (unstageAllBtn) unstageAllBtn.addEventListener("click", () => unstageFiles(currentStagedPaths));
+  
+  if (fetchBtn) fetchBtn.addEventListener("click", handleFetch);
+  if (pullBtn) pullBtn.addEventListener("click", handlePull);
+  if (pushBtn) pushBtn.addEventListener("click", handlePush);
   
   // Sidebar collapsible logic
   document.querySelectorAll(".section-header").forEach(header => {
@@ -705,30 +782,7 @@ async function setupEventListeners() {
     document.addEventListener("mouseup", () => { isResizing = false; document.body.style.cursor = "default"; });
   }
 
-  if (branchContainer) {
-    branchContainer.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (branchMenu) branchMenu.classList.toggle("hidden");
-    });
-  }
 
-  document.addEventListener("click", () => {
-    if (branchMenu) branchMenu.classList.add("hidden");
-  });
-
-  if (branchMenu) {
-    branchMenu.addEventListener("click", (e) => {
-      e.stopPropagation();
-    });
-  }
-
-  if (menuRenameBranch) {
-    menuRenameBranch.addEventListener("click", (e) => {
-      e.stopPropagation();
-      handleRenameBranch();
-    });
-  }
 
   if (cancelRenameBtn) cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
   if (confirmRenameBtn) confirmRenameBtn.addEventListener("click", confirmRename);
@@ -739,6 +793,62 @@ async function setupEventListeners() {
 
   if (themeLightBtn) themeLightBtn.addEventListener("click", () => setTheme("light"));
   if (themeDarkBtn) themeDarkBtn.addEventListener("click", () => setTheme("dark"));
+
+  // Branch context menu handling
+  if (branchesList) {
+    branchesList.addEventListener("contextmenu", (e) => {
+      const target = e.target.closest(".sidebar-item");
+      if (!target) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Get branch info from data attributes
+      const branchName = target.dataset.branchName;
+      const isRemote = target.dataset.isRemote === 'true';
+      
+      if (!branchName) return;
+      
+      contextMenuBranch = branchName;
+      contextMenuIsRemote = isRemote;
+      
+      // Show context menu at mouse position
+      if (branchContextMenu) {
+        // Show/hide menu items based on branch type
+        if (contextRename) {
+          contextRename.style.display = isRemote ? 'none' : 'block';
+        }
+        if (contextPush) {
+          contextPush.style.display = isRemote ? 'none' : 'block';
+        }
+        if (contextPull) {
+          contextPull.style.display = isRemote ? 'none' : 'block';
+        }
+        // Fetch is always visible
+        
+        branchContextMenu.classList.remove("hidden");
+        branchContextMenu.style.left = `${e.clientX}px`;
+        branchContextMenu.style.top = `${e.clientY}px`;
+      }
+    });
+  }
+  
+  // Hide context menu when clicking elsewhere
+  document.addEventListener("click", () => {
+    if (branchContextMenu) {
+      branchContextMenu.classList.add("hidden");
+      // Reset menu item visibility
+      if (contextRename) contextRename.style.display = 'block';
+      if (contextPush) contextPush.style.display = 'block';
+      if (contextPull) contextPull.style.display = 'block';
+    }
+  });
+  
+  // Context menu item clicks
+  if (contextFetch) contextFetch.addEventListener("click", handleFetch);
+  if (contextPull) contextPull.addEventListener("click", handlePull);
+  if (contextPush) contextPush.addEventListener("click", handlePush);
+  if (contextRename) contextRename.addEventListener("click", handleRenameBranch);
 
   // Listen for background repository updates emitted by the Rust file watcher
   await listen("repo-updated", (event) => {

@@ -51,6 +51,11 @@
             <div class="sidebar-section">
               <div class="section-header" id="header-branches">
                 <span>Branches</span>
+                <div class="branch-actions">
+                  <button id="fetch-btn" class="small-btn" title="Fetch from all remotes">Fetch</button>
+                  <button id="pull-btn" class="small-btn" title="Pull current branch">Pull</button>
+                  <button id="push-btn" class="small-btn" title="Push current branch">Push</button>
+                </div>
                 <span class="chevron">▼</span>
               </div>
               <div class="section-content" id="content-branches">
@@ -140,18 +145,27 @@
         </div>
       </div>
 
-      <!-- Rename Branch Modal -->
-      <div id="rename-modal" class="modal hidden">
-        <div class="modal-content">
-          <h3>Rename Branch</h3>
-          <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
-          <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
-          <div class="modal-actions">
-            <button id="cancel-rename-btn">Cancel</button>
-            <button id="confirm-rename-btn" class="primary-btn">Rename</button>
-          </div>
-        </div>
-      </div>
+       <!-- Rename Branch Modal -->
+       <div id="rename-modal" class="modal hidden">
+         <div class="modal-content">
+           <h3>Rename Branch</h3>
+           <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
+           <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
+           <div class="modal-actions">
+             <button id="cancel-rename-btn">Cancel</button>
+             <button id="confirm-rename-btn" class="primary-btn">Rename</button>
+           </div>
+         </div>
+       </div>
+
+       <!-- Branch Context Menu -->
+       <div id="branch-context-menu" class="context-menu hidden">
+         <div class="context-menu-item" id="context-fetch">Fetch</div>
+         <div class="context-menu-item" id="context-pull">Pull</div>
+         <div class="context-menu-item" id="context-push">Push</div>
+         <div class="context-menu-divider"></div>
+         <div class="context-menu-item" id="context-rename">Rename</div>
+       </div>
     </main>
   </body>
 </html>

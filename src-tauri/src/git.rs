@@ -319,6 +319,158 @@ pub fn checkout_branch(repo: &Repository, branch_name: &str, is_remote: bool) ->
     Ok(())
 }
 
+pub fn fetch_remote(repo: &Repository, remote_name: Option<String>) -> Result<(), String> {
+    let remotes = repo.remotes().map_err(|e| format!("Failed to get remotes: {}", e))?;
+    
+    if remotes.is_empty() {
+        return Err("No remotes configured".to_string());
+    }
+    
+    // If no remote specified, fetch all remotes
+    let remote_names = if let Some(name) = remote_name {
+        vec![name]
+    } else {
+        remotes.iter().filter_map(|n| n.map(|s| s.to_string())).collect()
+    };
+    
+    for name in remote_names {
+        let mut remote = repo.find_remote(&name)
+            .map_err(|e| format!("Failed to find remote {}: {}", name, e))?;
+        
+        // Fetch with default options
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.download_tags(git2::AutotagOption::All);
+        
+        remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)
+            .map_err(|e| format!("Failed to fetch from {}: {}", name, e))?;
+        
+        // Update remote-tracking branches
+        remote.update_tips(None, git2::RemoteUpdateFlags::empty(), git2::AutotagOption::All, None)
+            .map_err(|e| format!("Failed to update tips for {}: {}", name, e))?;
+    }
+    
+    Ok(())
+}
+
+pub fn push_branch(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    // Get current branch if not specified
+    let branch_to_push = if let Some(branch) = branch_name {
+        repo.find_branch(&branch, git2::BranchType::Local)
+            .map_err(|e| format!("Failed to find branch {}: {}", branch, e))?
+    } else {
+        // Get current branch
+        let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
+        if !head.is_branch() {
+            return Err("HEAD is not pointing to a branch".to_string());
+        }
+        git2::Branch::wrap(head)
+    };
+    
+    let branch_ref = branch_to_push.get();
+    let branch_ref_name = branch_ref.name()
+        .ok_or("Branch ref has no name")?;
+    
+    // Determine remote
+    let mut remote = if let Some(remote) = remote_name {
+        repo.find_remote(&remote)
+            .map_err(|e| format!("Failed to find remote {}: {}", remote, e))?
+    } else {
+        // Try to get upstream remote
+        let upstream = branch_to_push.upstream().ok();
+        if let Some(upstream) = upstream {
+            let upstream_name = upstream.name().map_err(|e| format!("Failed to get upstream name: {}", e))?
+                .ok_or("Upstream has no name")?;
+            // Extract remote name from upstream (e.g., "origin/main" -> "origin")
+            if let Some(slash_pos) = upstream_name.find('/') {
+                let remote_name = &upstream_name[..slash_pos];
+                repo.find_remote(remote_name)
+                    .map_err(|e| format!("Failed to find remote {}: {}", remote_name, e))?
+            } else {
+                return Err("Invalid upstream format".to_string());
+            }
+        } else {
+            return Err("No upstream configured for branch and no remote specified".to_string());
+        }
+    };
+    
+    // Prepare push (credentials will be handled by git's credential helpers)
+    let mut push_options = git2::PushOptions::new();
+    
+    // Push the branch
+    remote.push(&[branch_ref_name], Some(&mut push_options))
+        .map_err(|e| format!("Failed to push: {}", e))?;
+    
+    Ok(())
+}
+
+pub fn pull_branch(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    // First fetch
+    fetch_remote(repo, remote_name.clone())?;
+    
+    // Get current branch
+    let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
+    if !head.is_branch() {
+        return Err("HEAD is not pointing to a branch".to_string());
+    }
+    
+    let head_shorthand = head.shorthand().unwrap_or("HEAD").to_string();
+    
+    // Get the branch to merge
+    let target_branch_name = if let Some(branch) = branch_name {
+        branch
+    } else {
+        // Try to get upstream
+        let current_branch = git2::Branch::wrap(head);
+        let upstream = current_branch.upstream()
+            .map_err(|e| format!("Failed to get upstream: {}", e))?;
+        let upstream_name = upstream.name().map_err(|e| format!("Failed to get upstream name: {}", e))?
+            .ok_or("Upstream has no name")?;
+        upstream_name.to_string()
+    };
+    
+    // Find the remote branch
+    let remote_branch = repo.find_branch(&target_branch_name, git2::BranchType::Remote)
+        .map_err(|e| format!("Failed to find remote branch {}: {}", target_branch_name, e))?;
+    
+    let remote_commit = remote_branch.get().peel_to_commit()
+        .map_err(|e| format!("Failed to peel remote branch to commit: {}", e))?;
+    
+    // Merge the remote commit into current branch
+    let annotated_commit = repo.find_annotated_commit(remote_commit.id())
+        .map_err(|e| format!("Failed to create annotated commit: {}", e))?;
+    let analysis = repo.merge_analysis(&[&annotated_commit])
+        .map_err(|e| format!("Failed to analyze merge: {}", e))?;
+    
+    if analysis.0.is_up_to_date() {
+        // Already up to date
+        return Ok(());
+    }
+    
+    if analysis.0.is_fast_forward() {
+        // Fast-forward merge
+        let refname = format!("refs/heads/{}", head_shorthand);
+        let mut reference = repo.find_reference(&refname)
+            .map_err(|e| format!("Failed to find reference {}: {}", refname, e))?;
+        
+        reference.set_target(remote_commit.id(), "Fast-forward")
+            .map_err(|e| format!("Failed to fast-forward: {}", e))?;
+        
+        // Checkout the updated branch
+        repo.set_head(&refname)
+            .map_err(|e| format!("Failed to set HEAD: {}", e))?;
+        
+        let mut checkout_opts = git2::build::CheckoutBuilder::new();
+        checkout_opts.safe();
+        repo.checkout_head(Some(&mut checkout_opts))
+            .map_err(|e| format!("Failed to checkout: {}", e))?;
+    } else {
+        // Need a real merge - for now return error
+        return Err("Merge required but not implemented".to_string());
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
