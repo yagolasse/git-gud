@@ -2,7 +2,9 @@
 
 A lightweight, high-performance Git GUI built with **Rust**, **Tauri**, and **Vanilla JavaScript**. Inspired by tools like GitFork, **Git Gud** aims to provide a fast and intuitive experience for managing your Git repositories.
 
-![Git Gud UI Placeholder](src/assets/tauri.svg)
+## ✏️ Author Note
+
+This project is 99% AI generated for me to better understand AI code generation workflows and model capacities. The intention for the future is to make a usable git GUI client but for now is lacking too many features to be used in a real-life scenario. 
 
 ## ✨ Features
 
