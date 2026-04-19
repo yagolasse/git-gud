@@ -243,6 +243,55 @@ pub fn get_file_diff(repo: &Repository, file_path: &str, staged: bool) -> Result
     Ok(diff_text)
 }
 
+pub fn checkout_branch(repo: &Repository, branch_name: &str, is_remote: bool) -> Result<(), String> {
+    let target_branch_name = if is_remote {
+        // For remote branches like "origin/main", we want to create a local "main"
+        branch_name.split('/').last().ok_or("Invalid remote branch name")?
+    } else {
+        branch_name
+    };
+
+    // Try to find the local branch first
+    let local_branch = repo.find_branch(target_branch_name, git2::BranchType::Local);
+    
+    let obj = match local_branch {
+        Ok(branch) => {
+            branch.into_reference().peel(git2::ObjectType::Any)
+                .map_err(|e| format!("Failed to peel local branch: {}", e))?
+        },
+        Err(_) if is_remote => {
+            // If not found locally but it's a remote branch, create a local tracking branch
+            let remote_branch = repo.find_branch(branch_name, git2::BranchType::Remote)
+                .map_err(|e| format!("Failed to find remote branch {}: {}", branch_name, e))?;
+            
+            let target_commit = remote_branch.get().peel_to_commit()
+                .map_err(|e| format!("Failed to peel remote branch to commit: {}", e))?;
+            
+            let mut new_local = repo.branch(target_branch_name, &target_commit, false)
+                .map_err(|e| format!("Failed to create local branch {}: {}", target_branch_name, e))?;
+            
+            // Set upstream (tracking)
+            new_local.set_upstream(Some(branch_name))
+                .map_err(|e| format!("Failed to set upstream for {}: {}", target_branch_name, e))?;
+
+            new_local.into_reference().peel(git2::ObjectType::Any)
+                .map_err(|e| format!("Failed to peel new local branch: {}", e))?
+        },
+        Err(e) => return Err(format!("Branch {} not found: {}", target_branch_name, e)),
+    };
+
+    let mut checkout_opts = git2::build::CheckoutBuilder::new();
+    checkout_opts.safe(); // Don't overwrite local changes
+
+    repo.checkout_tree(&obj, Some(&mut checkout_opts))
+        .map_err(|e| format!("Failed to checkout tree: {}", e))?;
+
+    repo.set_head(&format!("refs/heads/{}", target_branch_name))
+        .map_err(|e| format!("Failed to set HEAD: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,5 +481,29 @@ mod tests {
         let remotes = get_remotes(&repo).unwrap();
         assert_eq!(remotes.len(), 1);
         assert_eq!(remotes[0].name, "origin");
+    }
+
+    #[test]
+    fn test_checkout_branch() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        // 1. Initial commit on 'master' (or default branch)
+        let signature = repo.signature().unwrap();
+        let mut index = repo.index().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let oid = repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+        let commit = repo.find_commit(oid).unwrap();
+
+        // 2. Create a new branch 'feature'
+        repo.branch("feature", &commit, false).unwrap();
+
+        // 3. Checkout 'feature'
+        checkout_branch(&repo, "feature", false).unwrap();
+
+        // 4. Verify HEAD is now 'feature'
+        let head = repo.head().unwrap();
+        assert_eq!(head.shorthand().unwrap(), "feature");
     }
 }

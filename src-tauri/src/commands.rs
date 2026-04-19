@@ -83,3 +83,9 @@ pub fn get_file_diff(repo_path: String, file_path: String, staged: bool) -> Resu
     let repo = git::get_repository(&repo_path)?;
     git::get_file_diff(&repo, &file_path, staged)
 }
+
+#[tauri::command]
+pub fn checkout_branch(repo_path: String, branch_name: String, is_remote: bool) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::checkout_branch(&repo, &branch_name, is_remote)
+}

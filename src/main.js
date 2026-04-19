@@ -285,10 +285,36 @@ async function refreshBranches(repoPath) {
         <span class="item-icon">${branch.is_remote ? "☁" : ""}</span>
         <span>${branch.name}</span>
       `;
+      
+      // Double click to checkout
+      li.addEventListener("dblclick", () => checkoutBranch(branch.name, branch.is_remote));
+      
       branchesList.appendChild(li);
     });
   } catch (err) {
     console.error("Failed to fetch branches:", err);
+  }
+}
+
+/**
+ * Checks out a specific branch.
+ * @param {string} branchName 
+ * @param {boolean} isRemote 
+ */
+async function checkoutBranch(branchName, isRemote) {
+  const confirmed = await ask(`Are you sure you want to checkout branch "${branchName}"? Any unsaved changes might be lost if they conflict.`, {
+    title: 'Checkout Branch',
+    kind: 'warning',
+  });
+
+  if (!confirmed) return;
+
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("checkout_branch", { repoPath, branchName, isRemote });
+    refreshEverything();
+  } catch (err) {
+    alert("Error checking out branch: " + err);
   }
 }
 
