@@ -27,7 +27,7 @@ tauri-plugin-dialog = "2.7.0"
 dirs = "5.0"
 notify = "8.2.0"
 tauri-plugin-window-state = "2.4.1"
+tempfile = "3.10"
 
 [dev-dependencies]
-tempfile = "3.10"
 

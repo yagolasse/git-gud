@@ -57,6 +57,7 @@
               <div class="section-header" id="header-branches">
                 <span>Branches</span>
                 <span class="chevron">▼</span>
+                <button id="create-branch-btn" class="small-btn add-btn" title="Create branch">+</button>
               </div>
               <div class="section-content" id="content-branches">
                 <ul id="branches-list" class="sidebar-list"></ul>
@@ -155,6 +156,24 @@
             <div class="modal-actions">
               <button id="cancel-rename-btn">Cancel</button>
               <button id="confirm-rename-btn" class="primary-btn">Rename</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Branch Modal -->
+        <div id="create-branch-modal" class="modal hidden">
+          <div class="modal-content">
+            <h3>Create Branch</h3>
+            <p>Create a new branch in the repository.</p>
+            <input type="text" id="branch-name-input" placeholder="Branch name (e.g., feature/new-feature)" />
+            <input type="text" id="branch-start-point-input" placeholder="Optional: Start from (branch name, commit hash, or leave empty for HEAD)" />
+            <div class="checkbox-container">
+              <input type="checkbox" id="branch-force-checkbox" />
+              <label for="branch-force-checkbox">Overwrite existing branch</label>
+            </div>
+            <div class="modal-actions">
+              <button id="cancel-create-branch-btn">Cancel</button>
+              <button id="confirm-create-branch-btn" class="primary-btn">Create Branch</button>
             </div>
           </div>
         </div>

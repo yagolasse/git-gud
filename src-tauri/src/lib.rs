@@ -23,6 +23,7 @@ pub fn run() {
             commands::unstage_files,
             commands::discard_unstaged_changes,
             commands::rename_branch,
+            commands::create_branch,
             commands::commit_changes,
             commands::get_last_commit_message,
             commands::get_file_diff,

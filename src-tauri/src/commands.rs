@@ -61,7 +61,14 @@ pub fn rename_branch(repo_path: String, old_name: String, new_name: String) -> R
 }
 
 #[tauri::command]
+pub fn create_branch(repo_path: String, branch_name: String, start_point: Option<String>, force: Option<bool>) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::create_branch(&repo, &branch_name, start_point, force.unwrap_or(false))
+}
+
+#[tauri::command]
 pub fn commit_changes(repo_path: String, message: String, amend: bool) -> Result<(), String> {
+    println!("[RUST] commit_changes called for repo: {}, amend: {}, message length: {}", repo_path, amend, message.len());
     let repo = git::get_repository(&repo_path)?;
     git::commit_changes(&repo, &message, amend)
 }

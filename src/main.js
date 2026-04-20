@@ -74,6 +74,14 @@ const confirmAddRemoteBtn = document.getElementById("confirm-add-remote-btn");
 const cancelAddRemoteBtn = document.getElementById("cancel-add-remote-btn");
 const addRemoteBtn = document.getElementById("add-remote-btn");
 
+const createBranchModal = document.getElementById("create-branch-modal");
+const branchNameInput = document.getElementById("branch-name-input");
+const branchStartPointInput = document.getElementById("branch-start-point-input");
+const branchForceCheckbox = document.getElementById("branch-force-checkbox");
+const confirmCreateBranchBtn = document.getElementById("confirm-create-branch-btn");
+const cancelCreateBranchBtn = document.getElementById("cancel-create-branch-btn");
+const createBranchBtn = document.getElementById("create-branch-btn");
+
 const remoteContextMenu = document.getElementById("remote-context-menu");
 const contextRemoveRemote = document.getElementById("context-remove-remote");
 
@@ -157,6 +165,8 @@ function isAnyNetworkOperationLoading() {
   return networkOperations.fetch || networkOperations.pull || networkOperations.push;
 }
 const commitBtn = document.getElementById("commit-btn");
+console.log("[DEBUG] commitBtn element:", commitBtn ? "found" : "NOT FOUND");
+console.log("[DEBUG] commitBtn details:", commitBtn);
 
 const fetchBtn = document.getElementById("fetch-btn");
 const pullBtn = document.getElementById("pull-btn");
@@ -191,7 +201,9 @@ function saveToStorage() {
  * Loads saved repositories from localStorage and attempts to open them.
  */
 async function loadFromStorage() {
+  console.log("[DEBUG] loadFromStorage called");
   const saved = localStorage.getItem(STORAGE_KEY);
+  console.log("[DEBUG] Saved repos from storage:", saved ? "yes" : "no");
   if (saved) {
     try {
       const paths = JSON.parse(saved);
@@ -218,7 +230,9 @@ async function loadFromStorage() {
  * Initializes the theme based on saved preference or system default.
  */
 function initTheme() {
+  console.log("[DEBUG] initTheme called");
   const savedTheme = localStorage.getItem(THEME_KEY) || "light";
+  console.log("[DEBUG] Saved theme:", savedTheme);
   setTheme(savedTheme);
 }
 
@@ -481,9 +495,46 @@ async function refreshBranches(repoPath) {
     }
   } catch (err) {
     console.error("Failed to fetch branches:", err);
+}
+
+function openCreateBranchModal() {
+  if (activeTabIndex === -1) return;
+  if (branchNameInput) branchNameInput.value = '';
+  if (branchStartPointInput) branchStartPointInput.value = '';
+  if (branchForceCheckbox) branchForceCheckbox.checked = false;
+  if (createBranchModal) createBranchModal.classList.remove("hidden");
+  if (branchNameInput) branchNameInput.focus();
+}
+
+async function confirmCreateBranch() {
+  if (activeTabIndex === -1) return;
+  if (!branchNameInput) return;
+  
+  const branchName = branchNameInput.value.trim();
+  const startPoint = branchStartPointInput ? branchStartPointInput.value.trim() : '';
+  const force = branchForceCheckbox ? branchForceCheckbox.checked : false;
+  
+  if (!branchName) {
+    alert("Please enter a branch name.");
+    return;
   }
   
-  /**
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("create_branch", { 
+      repoPath, 
+      branchName, 
+      startPoint: startPoint || null, 
+      force 
+    });
+    if (createBranchModal) createBranchModal.classList.add("hidden");
+    refreshEverything();
+  } catch (err) {
+    alert("Error creating branch: " + err);
+  }
+}
+
+/**
    * Creates a list item for a branch (local or remote).
    * @param {Object} branch - The branch object from Rust
    * @param {boolean} isGroupedRemote - True if this is a remote branch displayed in a group
@@ -806,6 +857,7 @@ async function confirmRename() {
  * Assembles and executes a Git commit.
  */
 async function handleCommit() {
+  console.log("handleCommit called");
   if (!commitSubjectInput) return;
   const subject = commitSubjectInput.value.trim();
   if (!subject) {
@@ -817,8 +869,11 @@ async function handleCommit() {
   const fullMessage = body ? `${subject}\n\n${body}` : subject;
 
   try {
+    console.log("activeTabIndex:", activeTabIndex, "repositories:", repositories);
     const repoPath = repositories[activeTabIndex].path;
+    console.log("repoPath:", repoPath);
     const amend = amendCheckbox ? amendCheckbox.checked : false;
+    console.log("Committing with message:", fullMessage, "amend:", amend);
     await invoke("commit_changes", { repoPath, message: fullMessage, amend });
     
     if (commitSubjectInput) commitSubjectInput.value = "";
@@ -1009,7 +1064,10 @@ async function removeRemote() {
  * Initializes all event listeners and background event listeners.
  */
 async function setupEventListeners() {
+  console.log("[DEBUG] setupEventListeners called");
+  
   const menuOpen = document.getElementById("menu-open");
+  console.log("[DEBUG] menuOpen element:", menuOpen ? "found" : "NOT FOUND");
   if (menuOpen) menuOpen.addEventListener("click", handleOpenRepo);
   
   const discardAllBtn = document.getElementById("discard-all-btn");
@@ -1065,8 +1123,18 @@ async function setupEventListeners() {
   
   if (cancelAddRemoteBtn) cancelAddRemoteBtn.addEventListener("click", () => addRemoteModal.classList.add("hidden"));
   if (confirmAddRemoteBtn) confirmAddRemoteBtn.addEventListener("click", confirmAddRemote);
-  if (addRemoteBtn) addRemoteBtn.addEventListener("click", openAddRemoteModal);
-  
+  if (addRemoteBtn) addRemoteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openAddRemoteModal();
+  });
+
+  if (cancelCreateBranchBtn) cancelCreateBranchBtn.addEventListener("click", () => createBranchModal.classList.add("hidden"));
+  if (confirmCreateBranchBtn) confirmCreateBranchBtn.addEventListener("click", confirmCreateBranch);
+  if (createBranchBtn) createBranchBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openCreateBranchModal();
+  });
+
   // Close modals with Escape key
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -1076,11 +1144,26 @@ async function setupEventListeners() {
       if (addRemoteModal && !addRemoteModal.classList.contains("hidden")) {
         addRemoteModal.classList.add("hidden");
       }
+      if (createBranchModal && !createBranchModal.classList.contains("hidden")) {
+        createBranchModal.classList.add("hidden");
+      }
     }
   });
 
+  console.log("[DEBUG] Setting up commit subject input listener:", commitSubjectInput ? "found" : "NOT FOUND");
   if (commitSubjectInput) commitSubjectInput.addEventListener("input", updateCharCount);
-  if (commitBtn) commitBtn.addEventListener("click", handleCommit);
+  console.log("[DEBUG] Setting up commit button listener:", commitBtn ? "found" : "NOT FOUND");
+  if (commitBtn) {
+    commitBtn.addEventListener("click", (e) => {
+      alert("Commit button clicked - check console for logs");
+      console.log("[DEBUG] Commit button clicked directly!", e);
+      console.log("[DEBUG] Button element:", commitBtn);
+      console.log("[DEBUG] Event target:", e.target);
+      console.log("[DEBUG] Event currentTarget:", e.currentTarget);
+      handleCommit();
+    });
+  }
+  console.log("[DEBUG] Setting up amend checkbox listener:", amendCheckbox ? "found" : "NOT FOUND");
   if (amendCheckbox) amendCheckbox.addEventListener("change", handleAmendChange);
 
   if (themeLightBtn) themeLightBtn.addEventListener("click", () => setTheme("light"));
@@ -1229,8 +1312,11 @@ async function setupEventListeners() {
 }
 
 // Bootstrap the application
+console.log("[DEBUG] Setting up DOMContentLoaded listener");
 window.addEventListener("DOMContentLoaded", () => {
+  console.log("[DEBUG] DOMContentLoaded fired");
   initTheme();
   setupEventListeners();
   loadFromStorage();
+  console.log("[DEBUG] Bootstrap complete");
 });

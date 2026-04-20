@@ -6,24 +6,24 @@ use dirs;
 
 /// Sets up authentication callbacks for git operations (SSH and HTTPS).
 fn setup_authentication_callbacks(callbacks: &mut git2::RemoteCallbacks) {
-    // Add progress callback for debugging
-    callbacks.transfer_progress(|stats| {
-        println!("Git transfer progress: indexed {} of {}, received {} bytes", 
-                 stats.indexed_objects(), stats.total_objects(), stats.received_bytes());
+    // Add progress callback for debugging (commented out for less noise)
+    callbacks.transfer_progress(|_stats| {
+        // println!("Git transfer progress: indexed {} of {}, received {} bytes", 
+        //          stats.indexed_objects(), stats.total_objects(), stats.received_bytes());
         true // continue
     });
     
     // Always accept SSH host keys (INSECURE - for testing only)
     // In production, implement proper host key verification
-    callbacks.certificate_check(|_cert, host| {
-        println!("Accepting SSH host key for: {}", host);
+    callbacks.certificate_check(|_cert, _host| {
+        // println!("Accepting SSH host key for: {}", host);
         Ok(git2::CertificateCheckStatus::CertificateOk)
     });
     
     // Authentication callback that tries multiple methods
-    callbacks.credentials(|url, username_from_url, allowed_types| {
+    callbacks.credentials(|_url, username_from_url, allowed_types| {
         println!("Authentication requested for URL: {}, username: {:?}, allowed types: {:?}", 
-                 url, username_from_url, allowed_types);
+                 _url, username_from_url, allowed_types);
         
         // Try SSH key authentication first if allowed
         if allowed_types.contains(git2::CredentialType::SSH_KEY) {
@@ -48,31 +48,31 @@ fn setup_authentication_callbacks(callbacks: &mut git2::RemoteCallbacks) {
                 
                 for key_file in key_files.iter() {
                     let key_path = ssh_dir.join(key_file);
-                    if key_path.exists() {
-                        println!("Trying SSH key: {:?}", key_path);
-                        // Try without passphrase first
-                        match Cred::ssh_key(
-                            username_from_url.unwrap_or("git"),
-                            None,
-                            &key_path,
-                            None,
-                        ) {
-                            Ok(cred) => {
-                                println!("SSH key authentication succeeded with {:?}", key_path);
-                                return Ok(cred);
-                            }
-                            Err(e) => {
-                                println!("SSH key {:?} failed (may have passphrase): {}", key_path, e);
-                            }
-                        }
+                     if key_path.exists() {
+                         println!("Trying SSH key: {:?}", key_path);
+                         // Try without passphrase first
+                         match Cred::ssh_key(
+                             username_from_url.unwrap_or("git"),
+                             None,
+                             &key_path,
+                             None,
+                         ) {
+                             Ok(cred) => {
+                                 println!("SSH key authentication succeeded with {:?}", key_path);
+                                 return Ok(cred);
+                             }
+                             Err(e) => {
+                                 println!("SSH key {:?} failed (may have passphrase): {}", key_path, e);
+                             }
+                         }
                     }
                 }
             }
             
-            println!("All SSH authentication attempts failed");
+             println!("All SSH authentication attempts failed");
         }
         
-        // Try username/password for HTTPS if allowed
+         // Try username/password for HTTPS if allowed
         if allowed_types.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
             println!("HTTPS username/password authentication requested");
             // We can't prompt for password in GUI easily, so return error
@@ -80,7 +80,7 @@ fn setup_authentication_callbacks(callbacks: &mut git2::RemoteCallbacks) {
             return Err(Error::from_str("Password authentication not supported in GUI"));
         }
         
-        // Finally, try default credential helper
+         // Finally, try default credential helper
         println!("Falling back to default credential helper");
         match Cred::default() {
             Ok(cred) => {
@@ -278,7 +278,29 @@ pub fn rename_branch(repo: &Repository, old_name: &str, new_name: &str) -> Resul
     Ok(())
 }
 
+pub fn create_branch(repo: &Repository, branch_name: &str, start_point: Option<String>, force: bool) -> Result<(), String> {
+    // Get the commit to branch from (default to HEAD)
+    let commit = if let Some(ref point) = start_point {
+        // Try to resolve the start point (could be branch name, commit hash, etc.)
+        let obj = repo.revparse_single(point)
+            .map_err(|e| format!("Failed to resolve start point '{}': {}", point, e))?;
+        obj.peel_to_commit()
+            .map_err(|e| format!("Failed to peel start point '{}' to commit: {}", point, e))?
+    } else {
+        // Use HEAD
+        let head = repo.head().map_err(|e| format!("Failed to get HEAD: {}", e))?;
+        head.peel_to_commit()
+            .map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?
+    };
+    
+    repo.branch(branch_name, &commit, force)
+        .map_err(|e| format!("Failed to create branch '{}': {}", branch_name, e))?;
+    
+    Ok(())
+}
+
 pub fn commit_changes(repo: &Repository, message: &str, amend: bool) -> Result<(), String> {
+    println!("[RUST] git::commit_changes called, amend: {}", amend);
     let mut index = repo.index().map_err(|e| format!("Failed to open index: {}", e))?;
     let tree_id = index.write_tree().map_err(|e| format!("Failed to write tree: {}", e))?;
     let tree = repo.find_tree(tree_id).map_err(|e| format!("Failed to find tree: {}", e))?;
@@ -306,6 +328,7 @@ pub fn commit_changes(repo: &Repository, message: &str, amend: bool) -> Result<(
             .map_err(|e| format!("Failed to create commit: {}", e))?;
     }
     
+    println!("[RUST] git::commit_changes succeeded");
     Ok(())
 }
 
@@ -435,13 +458,13 @@ pub(crate) fn fetch_remote_git2(repo: &Repository, remote_name: Option<String>) 
         let mut remote = repo.find_remote(&name)
             .map_err(|e| format!("Failed to find remote {}: {}", name, e))?;
         
-        // Check if URL is SSH and warn about potential issues
-        if let Some(url) = remote.url() {
-            if url.starts_with("git@") || url.contains("ssh://") {
-                println!("Warning: SSH URL detected ({}). SSH authentication may fail in GUI application.", url);
-                println!("Consider using HTTPS URL or ensuring SSH keys are configured without passphrase.");
+            // Check if URL is SSH and warn about potential issues
+            if let Some(url) = remote.url() {
+                if url.starts_with("git@") || url.contains("ssh://") {
+                    println!("Warning: SSH URL detected ({}). SSH authentication may fail in GUI application.", url);
+                    println!("Consider using HTTPS URL or ensuring SSH keys are configured without passphrase.");
+                }
             }
-        }
         
         // Fetch with authentication callbacks
         let mut fetch_options = git2::FetchOptions::new();
@@ -966,5 +989,37 @@ mod tests {
         // 4. Verify HEAD is now 'feature'
         let head = repo.head().unwrap();
         assert_eq!(head.shorthand().unwrap(), "feature");
+    }
+
+    #[test]
+    fn test_create_branch() {
+        let dir = tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        
+        // Create initial commit
+        let signature = repo.signature().unwrap();
+        let mut index = repo.index().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let oid = repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[]).unwrap();
+        let commit = repo.find_commit(oid).unwrap();
+        
+        // 1. Create a new branch from HEAD
+        create_branch(&repo, "feature", None, false).unwrap();
+        
+        // Verify branch exists
+        let branch = repo.find_branch("feature", git2::BranchType::Local).unwrap();
+        assert_eq!(branch.name().unwrap().unwrap(), "feature");
+        
+        // 2. Try to create duplicate branch without force should fail
+        assert!(create_branch(&repo, "feature", None, false).is_err());
+        
+        // 3. Create duplicate branch with force should succeed
+        assert!(create_branch(&repo, "feature", None, true).is_ok());
+        
+        // 4. Create branch from specific start point (the commit we have)
+        create_branch(&repo, "feature2", Some(commit.id().to_string()), false).unwrap();
+        let branch2 = repo.find_branch("feature2", git2::BranchType::Local).unwrap();
+        assert_eq!(branch2.name().unwrap().unwrap(), "feature2");
     }
 }
