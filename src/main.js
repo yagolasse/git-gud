@@ -27,6 +27,11 @@ let contextMenuIsRemote = false;
 /** Old branch name for rename operation. */
 let renameOldBranch = null;
 
+/** Currently selected file path for diff view, or null if none selected. */
+let selectedFilePath = null;
+/** Whether the selected file is staged (true) or unstaged (false). */
+let selectedFileStaged = false;
+
 /** Key used for persistent storage of open repo paths. */
 const STORAGE_KEY = "git-gud-repos";
 /** Key used for persistent storage of theme preference. */
@@ -57,6 +62,16 @@ const commitSubjectInput = document.getElementById("commit-subject");
 const commitBodyInput = document.getElementById("commit-body");
 const charCountDisplay = document.getElementById("char-count");
 const amendCheckbox = document.getElementById("amend-checkbox");
+
+/**
+ * Clears the diff view and resets the selected file state.
+ */
+function clearDiffView() {
+  selectedFilePath = null;
+  selectedFileStaged = false;
+  if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
+  if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
+}
 const commitBtn = document.getElementById("commit-btn");
 
 const fetchBtn = document.getElementById("fetch-btn");
@@ -208,6 +223,7 @@ async function setActiveTab(index) {
   if (index === -1) {
     if (noRepoView) noRepoView.classList.remove("hidden");
     if (repoView) repoView.classList.add("hidden");
+    clearDiffView();
   } else {
     const repo = repositories[index];
     if (noRepoView) noRepoView.classList.add("hidden");
@@ -221,8 +237,7 @@ async function setActiveTab(index) {
     if (amendCheckbox) amendCheckbox.checked = false;
 
     // Reset diff view
-    if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
-    if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
+    clearDiffView();
 
     refreshEverything();
   }
@@ -260,6 +275,19 @@ async function refreshChanges() {
   
   try {
     const statuses = await invoke("get_repo_status", { path });
+    
+    // Check if the currently selected file still exists and update diff if needed
+    if (selectedFilePath) {
+      const selectedFile = statuses.find(s => s.path === selectedFilePath);
+      if (!selectedFile) {
+        // File no longer in status (e.g., staged, committed, discarded)
+        clearDiffView();
+      } else if (selectedFile.staged !== selectedFileStaged) {
+        // File changed staging status, update diff view
+        showDiff(selectedFilePath, selectedFile.staged);
+      }
+    }
+    
     if (unstagedList) unstagedList.innerHTML = "";
     if (stagedList) stagedList.innerHTML = "";
     
@@ -510,6 +538,10 @@ async function discardUnstagedChanges(filePaths) {
  * @param {boolean} staged - Whether to show the staged or unstaged diff.
  */
 async function showDiff(file, staged) {
+  // Store the selected file for later validation
+  selectedFilePath = file;
+  selectedFileStaged = staged;
+  
   try {
     const repoPath = repositories[activeTabIndex].path;
     const diff = await invoke("get_file_diff", { repoPath, filePath: file, staged });
@@ -543,6 +575,7 @@ async function showDiff(file, staged) {
       diffContainer.scrollTop = 0;
     }
   } catch (err) {
+    clearDiffView();
     alert("Error fetching diff: " + err);
   }
 }
