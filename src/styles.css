@@ -238,6 +238,26 @@ body {
   flex-shrink: 0;
 }
 
+/* Sidebar Actions Bar */
+.sidebar-actions {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.sidebar-actions .small-btn {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.sidebar-actions .small-btn:hover {
+  background: var(--bg-hover);
+}
+
 /* Sidebar Changes (Middle) */
 .sidebar-changes {
   width: 300px;
@@ -298,21 +318,7 @@ body {
   transition: transform 0.2s;
 }
 
-.section-header .branch-actions {
-  display: flex;
-  gap: 4px;
-  margin-right: 8px;
-}
 
-.section-header .branch-actions .small-btn {
-  padding: 1px 4px;
-  font-size: 9px;
-  opacity: 0.7;
-}
-
-.section-header .branch-actions .small-btn:hover {
-  opacity: 1;
-}
 
 .section-content {
   display: flex;
