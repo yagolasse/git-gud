@@ -1,6 +1,104 @@
-use git2::Repository;
+use git2::{Repository, Cred, Error};
 use std::path::Path;
+use std::process::Command;
 use crate::models::{FileStatus, RepoInfo};
+use dirs;
+
+/// Sets up authentication callbacks for git operations (SSH and HTTPS).
+fn setup_authentication_callbacks(callbacks: &mut git2::RemoteCallbacks) {
+    // Add progress callback for debugging
+    callbacks.transfer_progress(|stats| {
+        println!("Git transfer progress: indexed {} of {}, received {} bytes", 
+                 stats.indexed_objects(), stats.total_objects(), stats.received_bytes());
+        true // continue
+    });
+    
+    // Always accept SSH host keys (INSECURE - for testing only)
+    // In production, implement proper host key verification
+    callbacks.certificate_check(|_cert, host| {
+        println!("Accepting SSH host key for: {}", host);
+        Ok(git2::CertificateCheckStatus::CertificateOk)
+    });
+    
+    // Authentication callback that tries multiple methods
+    callbacks.credentials(|url, username_from_url, allowed_types| {
+        println!("Authentication requested for URL: {}, username: {:?}, allowed types: {:?}", 
+                 url, username_from_url, allowed_types);
+        
+        // Try SSH key authentication first if allowed
+        if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+            println!("Trying SSH authentication methods...");
+            
+            // 1. Try SSH agent
+            println!("Trying SSH agent...");
+            if let Ok(cred) = Cred::ssh_key_from_agent(username_from_url.unwrap_or("git")) {
+                println!("SSH agent authentication succeeded");
+                return Ok(cred);
+            } else {
+                println!("SSH agent authentication failed");
+            }
+            
+            // 2. Try common SSH keys (on Windows, they're in %USERPROFILE%\.ssh\)
+            if let Some(home_dir) = dirs::home_dir() {
+                let ssh_dir = home_dir.join(".ssh");
+                println!("Looking for SSH keys in: {:?}", ssh_dir);
+                
+                // Common SSH key filenames
+                let key_files = ["id_rsa", "id_ed25519", "id_dsa", "id_ecdsa"];
+                
+                for key_file in key_files.iter() {
+                    let key_path = ssh_dir.join(key_file);
+                    if key_path.exists() {
+                        println!("Trying SSH key: {:?}", key_path);
+                        // Try without passphrase first
+                        match Cred::ssh_key(
+                            username_from_url.unwrap_or("git"),
+                            None,
+                            &key_path,
+                            None,
+                        ) {
+                            Ok(cred) => {
+                                println!("SSH key authentication succeeded with {:?}", key_path);
+                                return Ok(cred);
+                            }
+                            Err(e) => {
+                                println!("SSH key {:?} failed (may have passphrase): {}", key_path, e);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            println!("All SSH authentication attempts failed");
+        }
+        
+        // Try username/password for HTTPS if allowed
+        if allowed_types.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+            println!("HTTPS username/password authentication requested");
+            // We can't prompt for password in GUI easily, so return error
+            // This will trigger credential helper fallback
+            return Err(Error::from_str("Password authentication not supported in GUI"));
+        }
+        
+        // Finally, try default credential helper
+        println!("Falling back to default credential helper");
+        match Cred::default() {
+            Ok(cred) => {
+                println!("Default credential helper succeeded");
+                Ok(cred)
+            }
+            Err(e) => {
+                println!("Default credential helper failed: {}", e);
+                Err(e)
+            }
+        }
+    });
+}
+
+/// Returns true if the URL is an SSH URL (starts with "git@" or "ssh://")
+fn is_ssh_url(url: &str) -> bool {
+    url.starts_with("git@") || url.contains("ssh://")
+}
 
 pub fn get_repository(path: &str) -> Result<Repository, String> {
     Repository::discover(path).map_err(|e| format!("Failed to find repository: {}", e))
@@ -319,7 +417,7 @@ pub fn checkout_branch(repo: &Repository, branch_name: &str, is_remote: bool) ->
     Ok(())
 }
 
-pub fn fetch_remote(repo: &Repository, remote_name: Option<String>) -> Result<(), String> {
+pub(crate) fn fetch_remote_git2(repo: &Repository, remote_name: Option<String>) -> Result<(), String> {
     let remotes = repo.remotes().map_err(|e| format!("Failed to get remotes: {}", e))?;
     
     if remotes.is_empty() {
@@ -337,12 +435,48 @@ pub fn fetch_remote(repo: &Repository, remote_name: Option<String>) -> Result<()
         let mut remote = repo.find_remote(&name)
             .map_err(|e| format!("Failed to find remote {}: {}", name, e))?;
         
-        // Fetch with default options
+        // Check if URL is SSH and warn about potential issues
+        if let Some(url) = remote.url() {
+            if url.starts_with("git@") || url.contains("ssh://") {
+                println!("Warning: SSH URL detected ({}). SSH authentication may fail in GUI application.", url);
+                println!("Consider using HTTPS URL or ensuring SSH keys are configured without passphrase.");
+            }
+        }
+        
+        // Fetch with authentication callbacks
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.download_tags(git2::AutotagOption::All);
         
+        // Set up authentication callbacks
+        let mut callbacks = git2::RemoteCallbacks::new();
+        setup_authentication_callbacks(&mut callbacks);
+        fetch_options.remote_callbacks(callbacks);
+        
         remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)
-            .map_err(|e| format!("Failed to fetch from {}: {}", name, e))?;
+            .map_err(|e| {
+                let err_msg = e.message().to_lowercase();
+                let mut full_error = format!("Failed to fetch from {}: {}", name, e);
+                
+                // Check for SSH authentication errors
+                if err_msg.contains("auth") || err_msg.contains("authentication") || err_msg.contains("ssh") {
+                    full_error.push_str("\n\nSSH Authentication failed. Possible solutions:");
+                    full_error.push_str("\n1. Switch to HTTPS URL: git remote set-url origin https://github.com/username/repo.git");
+                    full_error.push_str("\n2. Ensure SSH keys are configured without passphrase");
+                    full_error.push_str("\n3. Make sure SSH agent is running (on Windows: start ssh-agent)");
+                    full_error.push_str("\n4. Add GitHub to known_hosts: ssh -T git@github.com");
+                    
+                    // Check if URL is SSH and provide conversion hint
+                    if let Some(url) = remote.url() {
+                        if url.starts_with("git@github.com:") {
+                            let repo_path = &url[15..]; // Remove "git@github.com:"
+                            let https_url = format!("https://github.com/{}", repo_path);
+                            full_error.push_str(&format!("\n\nTry switching to HTTPS:\n  git remote set-url origin {}", https_url));
+                        }
+                    }
+                }
+                
+                full_error
+            })?;
         
         // Update remote-tracking branches
         remote.update_tips(None, git2::RemoteUpdateFlags::empty(), git2::AutotagOption::All, None)
@@ -352,7 +486,50 @@ pub fn fetch_remote(repo: &Repository, remote_name: Option<String>) -> Result<()
     Ok(())
 }
 
-pub fn push_branch(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+pub fn fetch_remote(repo: &Repository, remote_name: Option<String>) -> Result<(), String> {
+    let remotes = repo.remotes().map_err(|e| format!("Failed to get remotes: {}", e))?;
+    
+    if remotes.is_empty() {
+        return Err("No remotes configured".to_string());
+    }
+    
+    // If no remote specified, fetch all remotes
+    let remote_names = if let Some(name) = remote_name {
+        vec![name]
+    } else {
+        remotes.iter().filter_map(|n| n.map(|s| s.to_string())).collect()
+    };
+    
+    for name in remote_names {
+        // Get remote URL to check if SSH
+        let remote = repo.find_remote(&name)
+            .map_err(|e| format!("Failed to find remote {}: {}", name, e))?;
+        let is_ssh = remote.url().map(|url| is_ssh_url(url)).unwrap_or(false);
+        
+        if is_ssh {
+            println!("SSH remote detected, using git CLI for fetch");
+            fetch_remote_cli(repo, Some(name.clone()))?;
+        } else {
+            // Try git2 fetch first
+            match fetch_remote_git2(repo, Some(name.clone())) {
+                Ok(_) => continue,
+                Err(err) => {
+                    let err_lower = err.to_lowercase();
+                    if err_lower.contains("auth") || err_lower.contains("authentication") || err_lower.contains("ssh") {
+                        println!("Git2 SSH authentication failed for remote '{}', falling back to git CLI", name);
+                        fetch_remote_cli(repo, Some(name.clone()))?;
+                    } else {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+pub(crate) fn push_branch_git2(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
     // Get current branch if not specified
     let branch_to_push = if let Some(branch) = branch_name {
         repo.find_branch(&branch, git2::BranchType::Local)
@@ -393,14 +570,42 @@ pub fn push_branch(repo: &Repository, remote_name: Option<String>, branch_name: 
         }
     };
     
-    // Prepare push (credentials will be handled by git's credential helpers)
+    // Check if URL is SSH and warn about potential issues
+    if let Some(url) = remote.url() {
+        if url.starts_with("git@") || url.contains("ssh://") {
+            println!("Warning: SSH URL detected ({}). SSH authentication may fail in GUI application.", url);
+            println!("Consider using HTTPS URL or ensuring SSH keys are configured without passphrase.");
+        }
+    }
+    
+    // Prepare push with authentication callbacks
     let mut push_options = git2::PushOptions::new();
+    
+    // Set up authentication callbacks
+    let mut callbacks = git2::RemoteCallbacks::new();
+    setup_authentication_callbacks(&mut callbacks);
+    push_options.remote_callbacks(callbacks);
     
     // Push the branch
     remote.push(&[branch_ref_name], Some(&mut push_options))
         .map_err(|e| format!("Failed to push: {}", e))?;
     
     Ok(())
+}
+
+pub fn push_branch(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    match push_branch_git2(repo, remote_name.clone(), branch_name.clone()) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            let err_lower = err.to_lowercase();
+            if err_lower.contains("auth") || err_lower.contains("authentication") || err_lower.contains("ssh") {
+                println!("Git2 SSH authentication failed for push, falling back to git CLI");
+                push_branch_cli(repo, remote_name, branch_name)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 pub fn pull_branch(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
@@ -482,6 +687,69 @@ pub fn add_remote(repo: &Repository, name: &str, url: &str) -> Result<(), String
 pub fn remove_remote(repo: &Repository, name: &str) -> Result<(), String> {
     repo.remote_delete(name)
         .map_err(|e| format!("Failed to remove remote {}: {}", name, e))?;
+    Ok(())
+}
+
+/// Runs a git command in the given repository directory.
+fn run_git_command(repo_path: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git command: {}", e))?;
+    
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Err(format!("Git command failed: {}\nStdout: {}\nStderr: {}", output.status, stdout, stderr))
+    }
+}
+
+/// Fetches from remote using git CLI (for SSH authentication support).
+pub fn fetch_remote_cli(repo: &Repository, remote_name: Option<String>) -> Result<(), String> {
+    let repo_path = repo.path().parent().ok_or("Repository path has no parent")?;
+    
+    let mut args = vec!["fetch"];
+    if let Some(name) = &remote_name {
+        args.push(name);
+    }
+    args.push("--verbose");
+    
+    run_git_command(repo_path, &args)?;
+    Ok(())
+}
+
+/// Pushes a branch using git CLI (for SSH authentication support).
+pub fn push_branch_cli(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    let repo_path = repo.path().parent().ok_or("Repository path has no parent")?;
+    
+    let mut args = vec!["push"];
+    if let Some(name) = &remote_name {
+        args.push(name);
+    }
+    if let Some(branch) = &branch_name {
+        args.push(branch);
+    }
+    
+    run_git_command(repo_path, &args)?;
+    Ok(())
+}
+
+/// Pulls a branch using git CLI (for SSH authentication support).
+pub fn pull_branch_cli(repo: &Repository, remote_name: Option<String>, branch_name: Option<String>) -> Result<(), String> {
+    let repo_path = repo.path().parent().ok_or("Repository path has no parent")?;
+    
+    let mut args = vec!["pull"];
+    if let Some(name) = &remote_name {
+        args.push(name);
+    }
+    if let Some(branch) = &branch_name {
+        args.push(branch);
+    }
+    
+    run_git_command(repo_path, &args)?;
     Ok(())
 }
 
