@@ -29,7 +29,9 @@ pub fn run() {
             commands::checkout_branch,
             commands::fetch_remote,
             commands::push_branch,
-            commands::pull_branch
+            commands::pull_branch,
+            commands::add_remote,
+            commands::remove_remote
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

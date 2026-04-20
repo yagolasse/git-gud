@@ -471,6 +471,20 @@ pub fn pull_branch(repo: &Repository, remote_name: Option<String>, branch_name: 
     Ok(())
 }
 
+/// Adds a new remote to the repository.
+pub fn add_remote(repo: &Repository, name: &str, url: &str) -> Result<(), String> {
+    repo.remote(name, url)
+        .map_err(|e| format!("Failed to add remote {}: {}", name, e))?;
+    Ok(())
+}
+
+/// Removes a remote from the repository.
+pub fn remove_remote(repo: &Repository, name: &str) -> Result<(), String> {
+    repo.remote_delete(name)
+        .map_err(|e| format!("Failed to remove remote {}: {}", name, e))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

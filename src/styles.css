@@ -427,6 +427,57 @@ body {
   z-index: 1;
 }
 
+/* Remote branch grouping */
+.sidebar-separator {
+  padding: 4px 12px;
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-top: 1px solid var(--border-light);
+  margin-top: 4px;
+  background: var(--bg-tertiary);
+}
+
+.remote-header {
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  justify-content: space-between;
+  cursor: default;
+  user-select: none;
+}
+
+.remote-header .remote-name {
+  font-weight: bold;
+}
+
+.remote-header .remote-branch-count {
+  color: var(--text-muted);
+  font-weight: normal;
+  font-size: 9px;
+}
+
+.remote-branch-item {
+  padding-left: 24px !important;
+  position: relative;
+}
+
+.remote-branch-item::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
 /* Main Content Right */
 .main-content-right {
   flex: 1;
@@ -804,8 +855,22 @@ body {
   cursor: pointer;
 }
 
-.primary-btn:hover {
+ .primary-btn:hover {
   background: var(--accent-hover);
+}
+
+/* Add button in section header */
+.section-header .add-btn {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 0px 4px;
+  font-size: 10px;
+  line-height: 1;
+  min-width: 16px;
+  min-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .hidden {

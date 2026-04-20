@@ -26,6 +26,8 @@ let contextMenuBranch = null;
 let contextMenuIsRemote = false;
 /** Old branch name for rename operation. */
 let renameOldBranch = null;
+/** Remote name for context menu actions. */
+let contextMenuRemote = null;
 
 /** Currently selected file path for diff view, or null if none selected. */
 let selectedFilePath = null;
@@ -64,6 +66,16 @@ const oldBranchDisplay = document.getElementById("old-branch-name-display");
 const newBranchInput = document.getElementById("new-branch-name-input");
 const confirmRenameBtn = document.getElementById("confirm-rename-btn");
 const cancelRenameBtn = document.getElementById("cancel-rename-btn");
+
+const addRemoteModal = document.getElementById("add-remote-modal");
+const remoteNameInput = document.getElementById("remote-name-input");
+const remoteUrlInput = document.getElementById("remote-url-input");
+const confirmAddRemoteBtn = document.getElementById("confirm-add-remote-btn");
+const cancelAddRemoteBtn = document.getElementById("cancel-add-remote-btn");
+const addRemoteBtn = document.getElementById("add-remote-btn");
+
+const remoteContextMenu = document.getElementById("remote-context-menu");
+const contextRemoveRemote = document.getElementById("context-remove-remote");
 
 const commitSubjectInput = document.getElementById("commit-subject");
 const commitBodyInput = document.getElementById("commit-body");
@@ -400,38 +412,118 @@ async function refreshBranches(repoPath) {
       return full;
     }
 
+    // Separate local and remote branches
+    const localBranches = [];
+    const remoteBranchesMap = new Map(); // remoteName -> array of branches
+    
     branches.forEach(branch => {
-      const li = document.createElement("li");
-      li.className = `sidebar-item ${branch.is_current ? "active" : ""}`;
-      li.dataset.branchName = branch.name;
-      li.dataset.isRemote = branch.is_remote;
-      // Generate status icons for local branches with upstream
-      let statusHtml = '';
-      if (!branch.is_remote && branch.upstream) {
-        const ahead = branch.ahead || 0;
-        const behind = branch.behind || 0;
-        if (ahead > 0 || behind > 0) {
-          let icons = [];
-          if (ahead > 0) icons.push(`↑${ahead}`);
-          if (behind > 0) icons.push(`↓${behind}`);
-          const shortUpstream = shortenUpstream(branch.upstream);
-          statusHtml = `<span class="branch-status" title="${shortUpstream} (${icons.join(', ')})">${icons.join(' ')}</span>`;
+      if (branch.is_remote) {
+        // Parse remote name from branch name (e.g., "origin/main" -> remote="origin", branchName="main")
+        const slashIndex = branch.name.indexOf('/');
+        if (slashIndex !== -1) {
+          const remoteName = branch.name.substring(0, slashIndex);
+          const branchNameWithoutRemote = branch.name.substring(slashIndex + 1);
+          const branchCopy = { ...branch, displayName: branchNameWithoutRemote };
+          
+          if (!remoteBranchesMap.has(remoteName)) {
+            remoteBranchesMap.set(remoteName, []);
+          }
+          remoteBranchesMap.get(remoteName).push(branchCopy);
+        } else {
+          // Fallback: treat as regular remote branch
+          if (!remoteBranchesMap.has('remotes')) {
+            remoteBranchesMap.set('remotes', []);
+          }
+          remoteBranchesMap.get('remotes').push({ ...branch, displayName: branch.name });
         }
+      } else {
+        localBranches.push(branch);
       }
-      
-      li.innerHTML = `
-        <span class="item-icon">${branch.is_remote ? "☁" : ""}</span>
-        <span class="branch-name">${branch.name}</span>
-        ${statusHtml}
-      `;
-      
-      // Double click to checkout
-      li.addEventListener("dblclick", () => checkoutBranch(branch.name, branch.is_remote));
-      
+    });
+    
+    // Display local branches first
+    localBranches.forEach(branch => {
+      const li = createBranchListItem(branch, false);
       branchesList.appendChild(li);
     });
+    
+    // Display remote branches grouped by remote
+    if (remoteBranchesMap.size > 0) {
+      // Add a separator if there are both local and remote branches
+      if (localBranches.length > 0) {
+        const separator = document.createElement('li');
+        separator.className = 'sidebar-separator';
+        separator.innerHTML = '<span class="separator-text">Remote Branches</span>';
+        branchesList.appendChild(separator);
+      }
+      
+      // Sort remote names alphabetically
+      const sortedRemoteNames = Array.from(remoteBranchesMap.keys()).sort();
+      
+      sortedRemoteNames.forEach(remoteName => {
+        const remoteBranches = remoteBranchesMap.get(remoteName);
+        
+        // Add remote header
+        const remoteHeader = document.createElement('li');
+        remoteHeader.className = 'remote-header';
+        remoteHeader.innerHTML = `
+          <span class="remote-name">${remoteName}</span>
+          <span class="remote-branch-count">(${remoteBranches.length})</span>
+        `;
+        branchesList.appendChild(remoteHeader);
+        
+        // Add branches for this remote
+        remoteBranches.forEach(branch => {
+          const li = createBranchListItem(branch, true);
+          branchesList.appendChild(li);
+        });
+      });
+    }
   } catch (err) {
     console.error("Failed to fetch branches:", err);
+  }
+  
+  /**
+   * Creates a list item for a branch (local or remote).
+   * @param {Object} branch - The branch object from Rust
+   * @param {boolean} isGroupedRemote - True if this is a remote branch displayed in a group
+   */
+  function createBranchListItem(branch, isGroupedRemote) {
+    const li = document.createElement("li");
+    li.className = `sidebar-item ${branch.is_current ? "active" : ""}`;
+    if (isGroupedRemote) {
+      li.classList.add('remote-branch-item');
+    }
+    li.dataset.branchName = branch.name;
+    li.dataset.isRemote = branch.is_remote;
+    
+    // Generate status icons for local branches with upstream
+    let statusHtml = '';
+    if (!branch.is_remote && branch.upstream) {
+      const ahead = branch.ahead || 0;
+      const behind = branch.behind || 0;
+      if (ahead > 0 || behind > 0) {
+        let icons = [];
+        if (ahead > 0) icons.push(`↑${ahead}`);
+        if (behind > 0) icons.push(`↓${behind}`);
+        const shortUpstream = shortenUpstream(branch.upstream);
+        statusHtml = `<span class="branch-status" title="${shortUpstream} (${icons.join(', ')})">${icons.join(' ')}</span>`;
+      }
+    }
+    
+    const displayName = isGroupedRemote ? branch.displayName : branch.name;
+    const icon = branch.is_remote ? "☁" : "";
+    
+    li.innerHTML = `
+      <span class="item-icon">${icon}</span>
+      <span class="branch-name">${displayName}</span>
+      ${statusHtml}
+    `;
+    
+    // Double click to checkout
+    li.addEventListener("dblclick", () => checkoutBranch(branch.name, branch.is_remote));
+    
+    return li;
   }
 }
 
@@ -469,6 +561,7 @@ async function refreshRemotes(repoPath) {
     remotes.forEach(remote => {
       const li = document.createElement("li");
       li.className = "sidebar-item";
+      li.dataset.remoteName = remote.name;
       li.innerHTML = `
         <span class="item-icon">📡</span>
         <div style="display: flex; flex-direction: column;">
@@ -850,6 +943,69 @@ async function handlePull() {
 }
 
 /**
+ * Opens the add remote modal.
+ */
+function openAddRemoteModal() {
+  if (activeTabIndex === -1) return;
+  if (remoteNameInput) remoteNameInput.value = '';
+  if (remoteUrlInput) remoteUrlInput.value = '';
+  if (addRemoteModal) addRemoteModal.classList.remove("hidden");
+  if (remoteNameInput) remoteNameInput.focus();
+}
+
+/**
+ * Adds a new remote to the repository.
+ */
+async function confirmAddRemote() {
+  if (activeTabIndex === -1) return;
+  if (!remoteNameInput || !remoteUrlInput) return;
+  
+  const name = remoteNameInput.value.trim();
+  const url = remoteUrlInput.value.trim();
+  
+  if (!name) {
+    alert("Please enter a remote name.");
+    return;
+  }
+  
+  if (!url) {
+    alert("Please enter a remote URL.");
+    return;
+  }
+  
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("add_remote", { repoPath, name, url });
+    if (addRemoteModal) addRemoteModal.classList.add("hidden");
+    refreshEverything();
+  } catch (err) {
+    alert("Error adding remote: " + err);
+  }
+}
+
+/**
+ * Removes a remote from the repository.
+ */
+async function removeRemote() {
+  if (activeTabIndex === -1 || !contextMenuRemote) return;
+  
+  const confirmed = await ask(`Are you sure you want to remove remote "${contextMenuRemote}"?`, {
+    title: 'Remove Remote',
+    kind: 'warning',
+  });
+  
+  if (!confirmed) return;
+  
+  try {
+    const repoPath = repositories[activeTabIndex].path;
+    await invoke("remove_remote", { repoPath, name: contextMenuRemote });
+    refreshEverything();
+  } catch (err) {
+    alert("Error removing remote: " + err);
+  }
+}
+
+/**
  * Initializes all event listeners and background event listeners.
  */
 async function setupEventListeners() {
@@ -906,6 +1062,22 @@ async function setupEventListeners() {
 
   if (cancelRenameBtn) cancelRenameBtn.addEventListener("click", () => renameModal.classList.add("hidden"));
   if (confirmRenameBtn) confirmRenameBtn.addEventListener("click", confirmRename);
+  
+  if (cancelAddRemoteBtn) cancelAddRemoteBtn.addEventListener("click", () => addRemoteModal.classList.add("hidden"));
+  if (confirmAddRemoteBtn) confirmAddRemoteBtn.addEventListener("click", confirmAddRemote);
+  if (addRemoteBtn) addRemoteBtn.addEventListener("click", openAddRemoteModal);
+  
+  // Close modals with Escape key
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (renameModal && !renameModal.classList.contains("hidden")) {
+        renameModal.classList.add("hidden");
+      }
+      if (addRemoteModal && !addRemoteModal.classList.contains("hidden")) {
+        addRemoteModal.classList.add("hidden");
+      }
+    }
+  });
 
   if (commitSubjectInput) commitSubjectInput.addEventListener("input", updateCharCount);
   if (commitBtn) commitBtn.addEventListener("click", handleCommit);
@@ -965,6 +1137,31 @@ async function setupEventListeners() {
     });
   }
   
+  // Remote context menu handling
+  if (remotesList) {
+    remotesList.addEventListener("contextmenu", (e) => {
+      const target = e.target.closest(".sidebar-item");
+      if (!target) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Get remote info from data attribute
+      const remoteName = target.dataset.remoteName;
+      
+      if (!remoteName) return;
+      
+      contextMenuRemote = remoteName;
+      
+      // Show context menu at mouse position
+      if (remoteContextMenu) {
+        remoteContextMenu.classList.remove("hidden");
+        remoteContextMenu.style.left = `${e.clientX}px`;
+        remoteContextMenu.style.top = `${e.clientY}px`;
+      }
+    });
+  }
+  
   // Hide context menu when clicking elsewhere
   document.addEventListener("click", () => {
     if (branchContextMenu) {
@@ -986,6 +1183,9 @@ async function setupEventListeners() {
         contextFetch.classList.remove('disabled');
       }
     }
+    if (remoteContextMenu) {
+      remoteContextMenu.classList.add("hidden");
+    }
   });
   
   // Context menu item clicks
@@ -1002,6 +1202,8 @@ async function setupEventListeners() {
     handlePush();
   });
   if (contextRename) contextRename.addEventListener("click", handleRenameBranch);
+  
+  if (contextRemoveRemote) contextRemoveRemote.addEventListener("click", removeRemote);
 
   // Listen for background repository updates emitted by the Rust file watcher
   await listen("repo-updated", (event) => {

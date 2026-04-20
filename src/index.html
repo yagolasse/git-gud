@@ -67,6 +67,7 @@
               <div class="section-header" id="header-remotes">
                 <span>Remotes</span>
                 <span class="chevron">▼</span>
+                <button id="add-remote-btn" class="small-btn add-btn" title="Add remote">+</button>
               </div>
               <div class="section-content" id="content-remotes">
                 <ul id="remotes-list" class="sidebar-list"></ul>
@@ -145,27 +146,46 @@
         </div>
       </div>
 
-       <!-- Rename Branch Modal -->
-       <div id="rename-modal" class="modal hidden">
-         <div class="modal-content">
-           <h3>Rename Branch</h3>
-           <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
-           <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
-           <div class="modal-actions">
-             <button id="cancel-rename-btn">Cancel</button>
-             <button id="confirm-rename-btn" class="primary-btn">Rename</button>
-           </div>
-         </div>
-       </div>
+        <!-- Rename Branch Modal -->
+        <div id="rename-modal" class="modal hidden">
+          <div class="modal-content">
+            <h3>Rename Branch</h3>
+            <p>Enter a new name for branch <strong id="old-branch-name-display"></strong>:</p>
+            <input type="text" id="new-branch-name-input" placeholder="New branch name..." />
+            <div class="modal-actions">
+              <button id="cancel-rename-btn">Cancel</button>
+              <button id="confirm-rename-btn" class="primary-btn">Rename</button>
+            </div>
+          </div>
+        </div>
 
-       <!-- Branch Context Menu -->
-       <div id="branch-context-menu" class="context-menu hidden">
-         <div class="context-menu-item" id="context-fetch">Fetch</div>
-         <div class="context-menu-item" id="context-pull">Pull</div>
-         <div class="context-menu-item" id="context-push">Push</div>
-         <div class="context-menu-divider"></div>
-         <div class="context-menu-item" id="context-rename">Rename</div>
-       </div>
+        <!-- Add Remote Modal -->
+        <div id="add-remote-modal" class="modal hidden">
+          <div class="modal-content">
+            <h3>Add Remote</h3>
+            <p>Add a new git remote to the repository.</p>
+            <input type="text" id="remote-name-input" placeholder="Remote name (e.g., origin)" />
+            <input type="text" id="remote-url-input" placeholder="Remote URL (e.g., https://github.com/user/repo.git)" />
+            <div class="modal-actions">
+              <button id="cancel-add-remote-btn">Cancel</button>
+              <button id="confirm-add-remote-btn" class="primary-btn">Add Remote</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Branch Context Menu -->
+        <div id="branch-context-menu" class="context-menu hidden">
+          <div class="context-menu-item" id="context-fetch">Fetch</div>
+          <div class="context-menu-item" id="context-pull">Pull</div>
+          <div class="context-menu-item" id="context-push">Push</div>
+          <div class="context-menu-divider"></div>
+          <div class="context-menu-item" id="context-rename">Rename</div>
+        </div>
+
+        <!-- Remote Context Menu -->
+        <div id="remote-context-menu" class="context-menu hidden">
+          <div class="context-menu-item" id="context-remove-remote">Remove</div>
+        </div>
     </main>
   </body>
 </html>

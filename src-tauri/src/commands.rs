@@ -107,3 +107,15 @@ pub fn pull_branch(repo_path: String, remote_name: Option<String>, branch_name: 
     let repo = git::get_repository(&repo_path)?;
     git::pull_branch(&repo, remote_name, branch_name)
 }
+
+#[tauri::command]
+pub fn add_remote(repo_path: String, name: String, url: String) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::add_remote(&repo, &name, &url)
+}
+
+#[tauri::command]
+pub fn remove_remote(repo_path: String, name: String) -> Result<(), String> {
+    let repo = git::get_repository(&repo_path)?;
+    git::remove_remote(&repo, &name)
+}
