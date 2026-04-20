@@ -32,6 +32,13 @@ let selectedFilePath = null;
 /** Whether the selected file is staged (true) or unstaged (false). */
 let selectedFileStaged = false;
 
+/** Tracks which network operations are currently in progress. */
+const networkOperations = {
+  fetch: false,
+  pull: false,
+  push: false
+};
+
 /** Key used for persistent storage of open repo paths. */
 const STORAGE_KEY = "git-gud-repos";
 /** Key used for persistent storage of theme preference. */
@@ -71,6 +78,71 @@ function clearDiffView() {
   selectedFileStaged = false;
   if (diffFilePath) diffFilePath.textContent = "Select a file to view changes";
   if (diffContainer) diffContainer.innerHTML = '<div class="diff-placeholder">No file selected</div>';
+}
+
+/**
+ * Sets a network operation as in progress and updates the button UI.
+ * @param {'fetch' | 'pull' | 'push'} operation - The operation type.
+ * @param {boolean} isLoading - Whether the operation is starting (true) or finished (false).
+ */
+function setNetworkOperationLoading(operation, isLoading) {
+  networkOperations[operation] = isLoading;
+  updateNetworkButtonStates();
+}
+
+/**
+ * Updates all network operation buttons based on current loading states.
+ */
+function updateNetworkButtonStates() {
+  const buttons = {
+    fetch: fetchBtn,
+    pull: pullBtn,
+    push: pushBtn
+  };
+  
+  const anyLoading = isAnyNetworkOperationLoading();
+  const loadingOp = anyLoading ? 
+    (networkOperations.fetch ? 'fetch' : networkOperations.pull ? 'pull' : 'push') : null;
+  
+  for (const [op, button] of Object.entries(buttons)) {
+    if (!button) continue;
+    
+    if (anyLoading) {
+      // If any operation is loading, disable all buttons
+      button.disabled = true;
+      button.classList.add('loading');
+      
+      // Add spinner only to the button that's actually loading
+      if (op === loadingOp) {
+        if (!button.dataset.originalHtml) {
+          button.dataset.originalHtml = button.innerHTML;
+          button.innerHTML = `<span class="spinner small"></span><span class="btn-text">${button.textContent}</span>`;
+        }
+      } else {
+        // For buttons not loading, ensure they don't have spinner
+        if (button.dataset.originalHtml) {
+          button.innerHTML = button.dataset.originalHtml;
+          delete button.dataset.originalHtml;
+        }
+      }
+    } else {
+      // No operations loading, enable all buttons and restore original HTML
+      button.disabled = false;
+      button.classList.remove('loading');
+      if (button.dataset.originalHtml) {
+        button.innerHTML = button.dataset.originalHtml;
+        delete button.dataset.originalHtml;
+      }
+    }
+  }
+}
+
+/**
+ * Checks if any network operation is currently in progress.
+ * @returns {boolean} True if any operation is loading.
+ */
+function isAnyNetworkOperationLoading() {
+  return networkOperations.fetch || networkOperations.pull || networkOperations.push;
 }
 const commitBtn = document.getElementById("commit-btn");
 
@@ -725,12 +797,17 @@ function closeTab(index) {
  */
 async function handleFetch() {
   if (activeTabIndex === -1) return;
+  if (isAnyNetworkOperationLoading()) return; // Don't start another if one is already running
+  
   try {
+    setNetworkOperationLoading('fetch', true);
     const repoPath = repositories[activeTabIndex].path;
     await invoke("fetch_remote", { repoPath, remoteName: null });
     refreshEverything();
   } catch (err) {
     alert("Error fetching: " + err);
+  } finally {
+    setNetworkOperationLoading('fetch', false);
   }
 }
 
@@ -739,12 +816,17 @@ async function handleFetch() {
  */
 async function handlePush() {
   if (activeTabIndex === -1) return;
+  if (isAnyNetworkOperationLoading()) return; // Don't start another if one is already running
+  
   try {
+    setNetworkOperationLoading('push', true);
     const repoPath = repositories[activeTabIndex].path;
     await invoke("push_branch", { repoPath, remoteName: null, branchName: null });
     refreshEverything();
   } catch (err) {
     alert("Error pushing: " + err);
+  } finally {
+    setNetworkOperationLoading('push', false);
   }
 }
 
@@ -753,12 +835,17 @@ async function handlePush() {
  */
 async function handlePull() {
   if (activeTabIndex === -1) return;
+  if (isAnyNetworkOperationLoading()) return; // Don't start another if one is already running
+  
   try {
+    setNetworkOperationLoading('pull', true);
     const repoPath = repositories[activeTabIndex].path;
     await invoke("pull_branch", { repoPath, remoteName: null, branchName: null });
     refreshEverything();
   } catch (err) {
     alert("Error pulling: " + err);
+  } finally {
+    setNetworkOperationLoading('pull', false);
   }
 }
 
@@ -859,6 +946,18 @@ async function setupEventListeners() {
         }
         // Fetch is always visible
         
+        // Disable network operations if any is already in progress
+        const isLoading = isAnyNetworkOperationLoading();
+        if (contextFetch) {
+          contextFetch.classList.toggle('disabled', isLoading);
+        }
+        if (contextPull && contextPull.style.display !== 'none') {
+          contextPull.classList.toggle('disabled', isLoading);
+        }
+        if (contextPush && contextPush.style.display !== 'none') {
+          contextPush.classList.toggle('disabled', isLoading);
+        }
+        
         branchContextMenu.classList.remove("hidden");
         branchContextMenu.style.left = `${e.clientX}px`;
         branchContextMenu.style.top = `${e.clientY}px`;
@@ -870,17 +969,38 @@ async function setupEventListeners() {
   document.addEventListener("click", () => {
     if (branchContextMenu) {
       branchContextMenu.classList.add("hidden");
-      // Reset menu item visibility
-      if (contextRename) contextRename.style.display = 'block';
-      if (contextPush) contextPush.style.display = 'block';
-      if (contextPull) contextPull.style.display = 'block';
+      // Reset menu item visibility and remove disabled state
+      if (contextRename) {
+        contextRename.style.display = 'block';
+        contextRename.classList.remove('disabled');
+      }
+      if (contextPush) {
+        contextPush.style.display = 'block';
+        contextPush.classList.remove('disabled');
+      }
+      if (contextPull) {
+        contextPull.style.display = 'block';
+        contextPull.classList.remove('disabled');
+      }
+      if (contextFetch) {
+        contextFetch.classList.remove('disabled');
+      }
     }
   });
   
   // Context menu item clicks
-  if (contextFetch) contextFetch.addEventListener("click", handleFetch);
-  if (contextPull) contextPull.addEventListener("click", handlePull);
-  if (contextPush) contextPush.addEventListener("click", handlePush);
+  if (contextFetch) contextFetch.addEventListener("click", (e) => {
+    if (contextFetch.classList.contains('disabled')) return;
+    handleFetch();
+  });
+  if (contextPull) contextPull.addEventListener("click", (e) => {
+    if (contextPull.classList.contains('disabled')) return;
+    handlePull();
+  });
+  if (contextPush) contextPush.addEventListener("click", (e) => {
+    if (contextPush.classList.contains('disabled')) return;
+    handlePush();
+  });
   if (contextRename) contextRename.addEventListener("click", handleRenameBranch);
 
   // Listen for background repository updates emitted by the Rust file watcher
