@@ -12,7 +12,7 @@ impl CommitView {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Show the commit view
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.label("Commit View");

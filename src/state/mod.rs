@@ -9,4 +9,4 @@ mod ui_state;
 
 pub use app_state::{AppState, SharedAppState};
 pub use repository_state::RepositoryState;
-pub use ui_state::{UIState, PendingAction};
+pub use ui_state::{PendingAction, UIState};

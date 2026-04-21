@@ -4,21 +4,21 @@
 //! in different parts of the application.
 
 mod branch_list;
-mod file_list;
-mod diff_viewer;
 mod commit_panel;
+mod diff_viewer;
+mod enhanced_diff_viewer;
 mod error_dialog;
 mod file_dialog;
+mod file_list;
 mod recent_repos;
-mod enhanced_diff_viewer;
 mod virtual_scroll;
 
 pub use branch_list::BranchList;
-pub use file_list::FileList;
-pub use diff_viewer::DiffViewer;
 pub use commit_panel::CommitPanel;
+pub use diff_viewer::DiffViewer;
+pub use enhanced_diff_viewer::EnhancedDiffViewer;
 pub use error_dialog::ErrorDialog;
 pub use file_dialog::FileDialog;
+pub use file_list::FileList;
 pub use recent_repos::RecentRepos;
-pub use enhanced_diff_viewer::EnhancedDiffViewer;
 pub use virtual_scroll::VirtualScroll;

@@ -12,7 +12,7 @@ impl RepositoryView {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Show the repository view
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.label("Repository View");

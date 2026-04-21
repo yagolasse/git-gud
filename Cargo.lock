@@ -1673,6 +1673,7 @@ dependencies = [
  "parking_lot",
  "rfd",
  "serde",
+ "serde_json",
  "syntect",
  "tempfile",
  "tokio",

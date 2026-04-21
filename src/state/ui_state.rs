@@ -21,46 +21,46 @@ pub enum PendingAction {
 pub struct UIState {
     /// Selected branch name
     pub selected_branch: Option<String>,
-    
+
     /// Selected file path (for diff view)
     pub selected_file: Option<PathBuf>,
-    
+
     /// Commit message summary (first line)
     pub commit_summary: String,
-    
+
     /// Commit message description (body)
     pub commit_description: String,
-    
+
     /// Whether to show only staged files
     pub show_only_staged: bool,
-    
+
     /// Whether to show only unstaged files
     pub show_only_unstaged: bool,
-    
+
     /// File filter string
     pub file_filter: String,
-    
+
     /// Branch filter string
     pub branch_filter: String,
-    
+
     /// Selected remote for fetch/pull/push
     pub selected_remote: Option<String>,
-    
+
     /// UI panel sizes (for persistence)
     pub left_panel_width: f32,
     pub right_panel_width: f32,
     pub middle_top_height: f32,
     pub middle_bottom_height: f32,
-    
+
     /// Whether the application is in dark mode
     pub dark_mode: bool,
-    
+
     /// Font size scaling
     pub font_scale: f32,
-    
+
     /// Pending action to execute after UI rendering
     pub pending_action: Option<PendingAction>,
-    
+
     /// Whether files have been staged/unstaged since last diff refresh
     pub files_staged_or_unstaged: bool,
 }
@@ -88,7 +88,7 @@ impl UIState {
             files_staged_or_unstaged: false,
         }
     }
-    
+
     /// Get the full commit message (summary + description)
     pub fn commit_message(&self) -> String {
         if self.commit_description.is_empty() {
@@ -97,121 +97,126 @@ impl UIState {
             format!("{}\n\n{}", self.commit_summary, self.commit_description)
         }
     }
-    
+
     /// Set the commit message (parses summary and description)
     pub fn set_commit_message(&mut self, message: &str) {
         let lines: Vec<&str> = message.lines().collect();
-        
+
         if lines.is_empty() {
             self.commit_summary.clear();
             self.commit_description.clear();
         } else {
             self.commit_summary = lines[0].to_string();
-            
+
             if lines.len() > 1 {
                 // Skip empty lines between summary and description
-                let description_start = lines.iter()
+                let description_start = lines
+                    .iter()
                     .skip(1)
                     .position(|line| !line.trim().is_empty())
                     .map(|pos| pos + 1)
                     .unwrap_or(1);
-                
+
                 self.commit_description = lines[description_start..].join("\n");
             } else {
                 self.commit_description.clear();
             }
         }
     }
-    
+
     /// Clear the commit message
     pub fn clear_commit_message(&mut self) {
         self.commit_summary.clear();
         self.commit_description.clear();
     }
-    
+
     /// Check if commit message is valid (non-empty summary)
     pub fn is_commit_message_valid(&self) -> bool {
         !self.commit_summary.trim().is_empty()
     }
-    
+
     /// Select a file for diff viewing
     pub fn select_file(&mut self, path: PathBuf) {
         self.selected_file = Some(path);
     }
-    
+
     /// Clear file selection
     pub fn clear_file_selection(&mut self) {
         self.selected_file = None;
     }
-    
+
     /// Check if a file is selected
     pub fn has_file_selection(&self) -> bool {
         self.selected_file.is_some()
     }
-    
+
     /// Get the selected file path
     pub fn selected_file_path(&self) -> Option<&PathBuf> {
         self.selected_file.as_ref()
     }
-    
+
     /// Select a branch
     pub fn select_branch(&mut self, branch_name: String) {
         self.selected_branch = Some(branch_name);
     }
-    
+
     /// Clear branch selection
     pub fn clear_branch_selection(&mut self) {
         self.selected_branch = None;
     }
-    
+
     /// Check if a branch is selected
     pub fn has_branch_selection(&self) -> bool {
         self.selected_branch.is_some()
     }
-    
+
     /// Get the selected branch name
     pub fn selected_branch_name(&self) -> Option<&str> {
         self.selected_branch.as_deref()
     }
-    
+
     /// Apply file filter to a list of file paths
     pub fn filter_files<'a>(&self, files: &'a [PathBuf]) -> Vec<&'a PathBuf> {
         if self.file_filter.is_empty() {
             return files.iter().collect();
         }
-        
+
         let filter_lower = self.file_filter.to_lowercase();
-        files.iter()
+        files
+            .iter()
             .filter(|path| {
-                path.to_string_lossy().to_lowercase().contains(&filter_lower)
+                path.to_string_lossy()
+                    .to_lowercase()
+                    .contains(&filter_lower)
             })
             .collect()
     }
-    
+
     /// Apply branch filter to a list of branch names
     pub fn filter_branches<'a>(&self, branches: &'a [String]) -> Vec<&'a String> {
         if self.branch_filter.is_empty() {
             return branches.iter().collect();
         }
-        
+
         let filter_lower = self.branch_filter.to_lowercase();
-        branches.iter()
+        branches
+            .iter()
             .filter(|name| name.to_lowercase().contains(&filter_lower))
             .collect()
     }
-    
+
     /// Mark that files have been staged or unstaged
     pub fn mark_files_staged_or_unstaged(&mut self) {
         self.files_staged_or_unstaged = true;
     }
-    
+
     /// Check if files have been staged/unstaged and reset the flag
     pub fn check_and_reset_staged_unstaged(&mut self) -> bool {
         let result = self.files_staged_or_unstaged;
         self.files_staged_or_unstaged = false;
         result
     }
-    
+
     /// Reset UI state to defaults (except for panel sizes)
     pub fn reset(&mut self) {
         self.selected_branch = None;
