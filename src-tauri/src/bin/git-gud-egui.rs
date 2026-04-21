@@ -20,6 +20,9 @@ struct RepositoryState {
     repo: Option<Arc<Mutex<Repository>>>,
     file_statuses: Vec<FileStatus>,
     error_message: Option<String>,
+    selected_file: Option<(String, bool)>, // (path, staged)
+    diff_content: Option<String>,
+    diff_error: Option<String>,
 }
 
 impl RepositoryState {
@@ -29,6 +32,9 @@ impl RepositoryState {
             repo: None,
             file_statuses: Vec::new(),
             error_message: None,
+            selected_file: None,
+            diff_content: None,
+            diff_error: None,
         }
     }
     
@@ -36,6 +42,7 @@ impl RepositoryState {
         self.path = Some(path.clone());
         self.error_message = None;
         self.file_statuses.clear();
+        self.clear_selection();
         
         match Repository::open(&path) {
             Ok(repo) => {
@@ -59,7 +66,21 @@ impl RepositoryState {
     
     fn refresh_status(&mut self) {
         if let Some(path) = &self.path {
+            // Store current selection to check if it still exists after refresh
+            let old_selection = self.selected_file.clone();
             self.load_repository_status(path.clone());
+            
+            // If we had a file selected, check if it still exists
+            if let Some((ref path, staged)) = old_selection {
+                if let Some(_file) = self.file_statuses.iter().find(|f| f.path == *path && f.staged == staged) {
+                    // File still exists, reselect it
+                    self.selected_file = Some((path.clone(), staged));
+                    self.fetch_diff_for_selected_file();
+                } else {
+                    // File no longer exists, clear selection
+                    self.clear_selection();
+                }
+            }
         }
     }
     
@@ -133,31 +154,69 @@ impl RepositoryState {
             self.stage_files(vec![file_path])
         }
     }
+    
+    fn select_file(&mut self, index: usize) {
+        if index >= self.file_statuses.len() {
+            return;
+        }
+        
+        let file = &self.file_statuses[index];
+        self.selected_file = Some((file.path.clone(), file.staged));
+        self.diff_content = None;
+        self.diff_error = None;
+        
+        // Fetch diff in background
+        self.fetch_diff_for_selected_file();
+    }
+    
+    fn fetch_diff_for_selected_file(&mut self) {
+        if let Some((ref path, staged)) = self.selected_file {
+            if let Some(repo) = &self.repo {
+                let repo = repo.lock().unwrap();
+                match get_file_diff(&repo, path, staged) {
+                    Ok(diff) => {
+                        self.diff_content = Some(diff);
+                        self.diff_error = None;
+                    }
+                    Err(err) => {
+                        self.diff_content = None;
+                        self.diff_error = Some(err);
+                    }
+                }
+            }
+        }
+    }
+    
+    fn clear_selection(&mut self) {
+        self.selected_file = None;
+        self.diff_content = None;
+        self.diff_error = None;
+    }
 }
 
 // ========== UI Components ==========
 
 struct RepositoryPanel {
     repo_state: Arc<Mutex<RepositoryState>>,
-    selected_file: Option<usize>,
     last_click_time: Option<std::time::Instant>,
+    open_repo_dialog_requested: bool,
 }
 
 impl RepositoryPanel {
     fn new(repo_state: Arc<Mutex<RepositoryState>>) -> Self {
         Self {
             repo_state,
-            selected_file: None,
             last_click_time: None,
+            open_repo_dialog_requested: false,
         }
     }
     
-    fn show(&mut self, ui: &mut egui::Ui) {
+    fn show_file_lists(&mut self, ui: &mut egui::Ui) {
         // Get repository state
         let repo_state = self.repo_state.lock().unwrap();
         
         // Store data we need for UI
-        let repo_path = repo_state.path.clone();
+        let _repo_path = repo_state.path.clone();
         let error_message = repo_state.error_message.clone();
         let file_statuses = repo_state.file_statuses.clone();
         let staged_indices: Vec<usize> = file_statuses
@@ -176,34 +235,7 @@ impl RepositoryPanel {
         // Drop the lock before UI rendering to avoid borrowing issues
         drop(repo_state);
         
-        // Repository selection
-        ui.horizontal(|ui| {
-            if ui.button("Open Repository").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    let repo_path = path.display().to_string();
-                    let mut repo_state = self.repo_state.lock().unwrap();
-                    repo_state.load_repository_status(repo_path.clone());
-                    
-                    // Save the repository path for next time
-                    if let Err(err) = save_last_repository(&repo_path) {
-                        repo_state.error_message = Some(format!("Failed to save repository path: {}", err));
-                    }
-                }
-            }
-            
-            if let Some(path) = &repo_path {
-                ui.label(format!("Repository: {}", path));
-            } else {
-                ui.label("No repository selected");
-            }
-            
-            if ui.button("Refresh").clicked() {
-                let mut repo_state = self.repo_state.lock().unwrap();
-                repo_state.refresh_status();
-            }
-        });
-        
-        ui.separator();
+
         
         // Error display
         if let Some(error) = &error_message {
@@ -275,6 +307,97 @@ impl RepositoryPanel {
         }
     }
     
+    fn show_diff_view(&mut self, ui: &mut egui::Ui) {
+        let repo_state = self.repo_state.lock().unwrap();
+        
+        // Repository selection at the top
+        ui.horizontal(|ui| {
+            ui.heading("Git Gud");
+            
+            if ui.button("Open Repository").clicked() {
+                self.open_repo_dialog_requested = true;
+            }
+            
+            if let Some(path) = &repo_state.path {
+                ui.label(format!("Repository: {}", path));
+            } else {
+                ui.label("No repository selected");
+            }
+            
+            if ui.button("Refresh").clicked() {
+                let mut repo_state = self.repo_state.lock().unwrap();
+                repo_state.refresh_status();
+            }
+        });
+        
+        ui.separator();
+        
+        // Show general errors
+        if let Some(error) = &repo_state.error_message {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
+            ui.separator();
+        }
+        
+        // Show diff header
+        if let Some((ref path, staged)) = &repo_state.selected_file {
+            ui.heading(format!("Diff: {} ({})", path, if *staged { "Staged" } else { "Unstaged" }));
+        } else {
+            ui.heading("Diff: No file selected");
+            ui.label("Select a file from the left panel to view its changes");
+            return;
+        }
+        
+        ui.separator();
+        
+        // Show diff error if any
+        if let Some(error) = &repo_state.diff_error {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
+            ui.separator();
+        }
+        
+        // Show diff content
+        if let Some(diff) = &repo_state.diff_content {
+            if diff.trim().is_empty() {
+                ui.label("No changes to show (might be a new untracked file or binary).");
+            } else {
+                // For now, show plain text diff
+                // We'll add syntax highlighting in the next step
+                egui::ScrollArea::vertical()
+                    .max_height(f32::INFINITY)
+                    .show(ui, |ui| {
+                        // Use monospaced font for diff
+                        ui.style_mut().text_styles.insert(
+                            egui::TextStyle::Body,
+                            egui::FontId::monospace(12.0)
+                        );
+                        
+                        // Split diff into lines and render with basic coloring
+                        for line in diff.lines() {
+                            if line.starts_with('+') {
+                                ui.colored_label(egui::Color32::GREEN, line);
+                            } else if line.starts_with('-') {
+                                ui.colored_label(egui::Color32::RED, line);
+                            } else if line.starts_with("@@") {
+                                ui.colored_label(egui::Color32::BLUE, line);
+                            } else {
+                                ui.label(line);
+                            }
+                        }
+                        
+                        // Restore default font
+                        ui.style_mut().text_styles.insert(
+                            egui::TextStyle::Body,
+                            egui::FontId::default()
+                        );
+                    });
+            }
+        } else {
+            // Diff is still loading
+            ui.spinner();
+            ui.label("Loading diff...");
+        }
+    }
+    
     fn show_file_item(
         &mut self,
         ui: &mut egui::Ui,
@@ -283,7 +406,12 @@ impl RepositoryPanel {
         is_staged: bool
     ) {
         let file = &file_statuses[index];
-        let is_selected = self.selected_file == Some(index);
+        let is_selected = {
+            let repo_state = self.repo_state.lock().unwrap();
+            repo_state.selected_file.as_ref().map_or(false, |(selected_path, selected_staged)| {
+                selected_path == &file.path && *selected_staged == is_staged
+            })
+        };
         
         // Determine icon based on Git status
         let (icon, color, tooltip) = if file.git_status.is_index_new() || file.git_status.is_wt_new() {
@@ -349,7 +477,8 @@ impl RepositoryPanel {
                 }
             }
             if select_file {
-                self.selected_file = Some(index);
+                let mut repo_state = self.repo_state.lock().unwrap();
+                repo_state.select_file(index);
             }
         }
         
@@ -422,9 +551,32 @@ impl eframe::App for GitGudApp {
             }
         }
         
+        // Handle open repository dialog if requested
+        if self.repo_panel.open_repo_dialog_requested {
+            self.repo_panel.open_repo_dialog_requested = false;
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                let repo_path = path.display().to_string();
+                let mut repo_state = self.repo_panel.repo_state.lock().unwrap();
+                repo_state.load_repository_status(repo_path.clone());
+                
+                // Save the repository path for next time
+                if let Err(err) = save_last_repository(&repo_path) {
+                    repo_state.error_message = Some(format!("Failed to save repository path: {}", err));
+                }
+            }
+        }
+        
+        // Left panel for file lists
+        egui::SidePanel::left("file_panel")
+            .min_width(300.0)
+            .max_width(400.0)
+            .show(ctx, |ui| {
+                self.repo_panel.show_file_lists(ui);
+            });
+        
+        // Central panel for diff view
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Git Gud - egui version");
-            self.repo_panel.show(ui);
+            self.repo_panel.show_diff_view(ui);
         });
     }
 }
@@ -506,6 +658,45 @@ fn unstage_files(repo: &Repository, file_paths: Vec<String>) -> Result<(), Strin
         .map_err(|e| format!("Failed to write index: {}", e))?;
     
     Ok(())
+}
+
+/// Get file diff (similar to git.rs version but simplified for egui)
+fn get_file_diff(repo: &Repository, file_path: &str, staged: bool) -> Result<String, String> {
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(file_path);
+    opts.context_lines(3);
+    opts.interhunk_lines(1);
+
+    let diff = if staged {
+        let head = repo.head().ok();
+        let tree = match head {
+            Some(h) => Some(h.peel_to_tree().map_err(|e| format!("Failed to peel HEAD to tree: {}", e))?),
+            None => None,
+        };
+        repo.diff_tree_to_index(tree.as_ref(), None, Some(&mut opts))
+            .map_err(|e| format!("Failed to get staged diff: {}", e))?
+    } else {
+        repo.diff_index_to_workdir(None, Some(&mut opts))
+            .map_err(|e| format!("Failed to get unstaged diff: {}", e))?
+    };
+
+    let mut diff_text = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let origin = line.origin();
+        match origin {
+            '+' | '-' | ' ' => {
+                diff_text.push(origin);
+                diff_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
+            }
+            'H' => {
+                diff_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
+            }
+            _ => {}
+        }
+        true
+    }).map_err(|e| format!("Failed to format diff: {}", e))?;
+
+    Ok(diff_text)
 }
 
 // ========== Main Function ==========
