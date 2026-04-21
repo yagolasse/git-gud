@@ -10,6 +10,8 @@ mod commit_panel;
 mod error_dialog;
 mod file_dialog;
 mod recent_repos;
+mod enhanced_diff_viewer;
+mod virtual_scroll;
 
 pub use branch_list::BranchList;
 pub use file_list::FileList;
@@ -18,3 +20,5 @@ pub use commit_panel::CommitPanel;
 pub use error_dialog::ErrorDialog;
 pub use file_dialog::FileDialog;
 pub use recent_repos::RecentRepos;
+pub use enhanced_diff_viewer::EnhancedDiffViewer;
+pub use virtual_scroll::VirtualScroll;

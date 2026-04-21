@@ -55,3 +55,7 @@ pub struct FileChange {
     pub status: FileStatus,
     pub diff: Option<String>,
 }
+
+// Re-export diff module
+pub mod diff;
+pub use diff::*;

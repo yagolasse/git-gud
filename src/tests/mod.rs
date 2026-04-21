@@ -11,5 +11,7 @@ mod ui_tests;
 mod main_window_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod diff_integration_tests;
 // #[cfg(test)]
 // mod models_tests;
