@@ -1,8 +1,10 @@
 use eframe::egui;
 use git2::{Repository, StatusOptions};
+use notify::{Watcher, RecommendedWatcher, Event, RecursiveMode};
 use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Instant, Duration};
 
 // ========== Data Models ==========
 
@@ -14,6 +16,66 @@ struct FileStatus {
     git_status: git2::Status,
 }
 
+struct FileWatcher {
+    watcher: RecommendedWatcher,
+    last_event_time: Instant,
+}
+
+impl FileWatcher {
+    fn new(ctx: egui::Context) -> Result<Self, String> {
+        let ctx_clone = ctx.clone();
+        let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+            if let Ok(event) = res {
+                // Check if this is a Git metadata change
+                let mut should_refresh = false;
+                for path in event.paths {
+                    if let Some(filename) = path.file_name() {
+                        let name = filename.to_string_lossy();
+                        if name == "index" || name == "HEAD" || name.starts_with("refs") {
+                            should_refresh = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if should_refresh {
+                    // Request UI repaint on next frame
+                    ctx_clone.request_repaint();
+                }
+            }
+        }).map_err(|e| format!("Failed to create watcher: {}", e))?;
+        
+        Ok(Self {
+            watcher,
+            last_event_time: Instant::now(),
+        })
+    }
+    
+    fn watch_repo(&mut self, repo_path: &str) -> Result<(), String> {
+        let git_dir = PathBuf::from(repo_path).join(".git");
+        if !git_dir.exists() {
+            return Ok(());
+        }
+        
+        self.watcher.watch(&git_dir, RecursiveMode::Recursive)
+            .map_err(|e| format!("Failed to watch repository: {}", e))?;
+        
+        Ok(())
+    }
+    
+    fn should_refresh(&mut self) -> bool {
+        // Debounce: only refresh if at least 500ms since last event
+        let now = Instant::now();
+        let time_since_last = now.duration_since(self.last_event_time);
+        if time_since_last >= Duration::from_millis(500) {
+            self.last_event_time = now;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Clone)]
 struct RepositoryState {
     path: Option<String>,
@@ -23,6 +85,8 @@ struct RepositoryState {
     selected_file: Option<(String, bool)>, // (path, staged)
     diff_content: Option<String>,
     diff_error: Option<String>,
+    last_refresh: Instant,
+    needs_refresh: bool,
 }
 
 impl RepositoryState {
@@ -35,6 +99,8 @@ impl RepositoryState {
             selected_file: None,
             diff_content: None,
             diff_error: None,
+            last_refresh: Instant::now(),
+            needs_refresh: false,
         }
     }
     
@@ -50,6 +116,8 @@ impl RepositoryState {
                     Ok(statuses) => {
                         self.file_statuses = statuses;
                         self.repo = Some(Arc::new(Mutex::new(repo)));
+                        self.last_refresh = Instant::now();
+                        self.needs_refresh = false;
                     }
                     Err(err) => {
                         self.error_message = Some(format!("Failed to get repository status: {}", err));
@@ -64,21 +132,51 @@ impl RepositoryState {
         }
     }
     
+    fn refresh_if_needed(&mut self) {
+        if self.needs_refresh {
+            self.refresh_status();
+        }
+    }
+    
+    fn mark_needs_refresh(&mut self) {
+        self.needs_refresh = true;
+    }
+    
     fn refresh_status(&mut self) {
         if let Some(path) = &self.path {
             // Store current selection to check if it still exists after refresh
             let old_selection = self.selected_file.clone();
-            self.load_repository_status(path.clone());
             
-            // If we had a file selected, check if it still exists
-            if let Some((ref path, staged)) = old_selection {
-                if let Some(_file) = self.file_statuses.iter().find(|f| f.path == *path && f.staged == staged) {
-                    // File still exists, reselect it
-                    self.selected_file = Some((path.clone(), staged));
-                    self.fetch_diff_for_selected_file();
-                } else {
-                    // File no longer exists, clear selection
-                    self.clear_selection();
+            // Try to use existing repository if available
+            let result = if let Some(repo_arc) = &self.repo {
+                let repo = repo_arc.lock().unwrap();
+                get_repo_status(&repo)
+            } else {
+                // No repository open, load fresh
+                return self.load_repository_status(path.clone());
+            };
+            
+            match result {
+                Ok(statuses) => {
+                    self.file_statuses = statuses;
+                    self.last_refresh = Instant::now();
+                    self.needs_refresh = false;
+                    
+                    // If we had a file selected, check if it still exists
+                    if let Some((ref path, staged)) = old_selection {
+                        if let Some(_file) = self.file_statuses.iter().find(|f| f.path == *path && f.staged == staged) {
+                            // File still exists, reselect it
+                            self.selected_file = Some((path.clone(), staged));
+                            self.fetch_diff_for_selected_file();
+                        } else {
+                            // File no longer exists, clear selection
+                            self.clear_selection();
+                        }
+                    }
+                }
+                Err(err) => {
+                    // Repository might be invalid, try reopening
+                    self.load_repository_status(path.clone());
                 }
             }
         }
@@ -198,6 +296,7 @@ impl RepositoryState {
 
 struct RepositoryPanel {
     repo_state: Arc<Mutex<RepositoryState>>,
+    file_watcher: Option<FileWatcher>,
     last_click_time: Option<std::time::Instant>,
     open_repo_dialog_requested: bool,
 }
@@ -206,6 +305,7 @@ impl RepositoryPanel {
     fn new(repo_state: Arc<Mutex<RepositoryState>>) -> Self {
         Self {
             repo_state,
+            file_watcher: None,
             last_click_time: None,
             open_repo_dialog_requested: false,
         }
@@ -322,11 +422,6 @@ impl RepositoryPanel {
                 ui.label(format!("Repository: {}", path));
             } else {
                 ui.label("No repository selected");
-            }
-            
-            if ui.button("Refresh").clicked() {
-                let mut repo_state = self.repo_state.lock().unwrap();
-                repo_state.refresh_status();
             }
         });
         
@@ -539,7 +634,23 @@ impl eframe::App for GitGudApp {
                 // Check if the repository still exists
                 if Repository::open(&last_repo).is_ok() {
                     let mut repo_state = self.repo_panel.repo_state.lock().unwrap();
-                    repo_state.load_repository_status(last_repo);
+                    repo_state.load_repository_status(last_repo.clone());
+                    
+                    // Initialize file watcher for this repository
+                    if self.repo_panel.file_watcher.is_none() {
+                        match FileWatcher::new(ctx.clone()) {
+                            Ok(mut watcher) => {
+                                if let Err(err) = watcher.watch_repo(&last_repo) {
+                                    eprintln!("Failed to start file watcher: {}", err);
+                                } else {
+                                    self.repo_panel.file_watcher = Some(watcher);
+                                }
+                            }
+                    Err(_err) => {
+                        eprintln!("Failed to create file watcher");
+                    }
+                        }
+                    }
                 }
             }
         }
@@ -549,6 +660,20 @@ impl eframe::App for GitGudApp {
             if last_click.elapsed().as_millis() > 1000 {
                 self.repo_panel.last_click_time = None;
             }
+        }
+        
+        // Check if file watcher indicates we need to refresh
+        if let Some(watcher) = &mut self.repo_panel.file_watcher {
+            if watcher.should_refresh() {
+                let mut repo_state = self.repo_panel.repo_state.lock().unwrap();
+                repo_state.mark_needs_refresh();
+            }
+        }
+        
+        // Refresh repository status if needed
+        {
+            let mut repo_state = self.repo_panel.repo_state.lock().unwrap();
+            repo_state.refresh_if_needed();
         }
         
         // Handle open repository dialog if requested
@@ -561,7 +686,40 @@ impl eframe::App for GitGudApp {
                 
                 // Save the repository path for next time
                 if let Err(err) = save_last_repository(&repo_path) {
-                    repo_state.error_message = Some(format!("Failed to save repository path: {}", err));
+                    eprintln!("Failed to save repository path: {}", err);
+                }
+                
+                // Initialize or update file watcher for this repository
+                if let Some(_watcher) = &mut self.repo_panel.file_watcher {
+                    // Stop watching previous repository and start watching new one
+                    // Note: notify watcher doesn't have an easy way to unwatch specific paths
+                    // For simplicity, we'll create a new watcher
+                    match FileWatcher::new(ctx.clone()) {
+                        Ok(mut new_watcher) => {
+                            if let Err(err) = new_watcher.watch_repo(&repo_path) {
+                                eprintln!("Failed to start file watcher: {}", err);
+                            } else {
+                                self.repo_panel.file_watcher = Some(new_watcher);
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Failed to create file watcher: {}", err);
+                        }
+                    }
+                } else {
+                    // Create new file watcher
+                    match FileWatcher::new(ctx.clone()) {
+                        Ok(mut watcher) => {
+                            if let Err(err) = watcher.watch_repo(&repo_path) {
+                                eprintln!("Failed to start file watcher: {}", err);
+                            } else {
+                                self.repo_panel.file_watcher = Some(watcher);
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Failed to create file watcher: {}", err);
+                        }
+                    }
                 }
             }
         }
@@ -583,7 +741,7 @@ impl eframe::App for GitGudApp {
 
 // ========== Git Operations ==========
 
-fn get_repo_status(repo: &Repository) -> Result<Vec<FileStatus>, String> {
+ fn get_repo_status(repo: &Repository) -> Result<Vec<FileStatus>, String> {
     let mut status_options = StatusOptions::new();
     status_options
         .include_untracked(true)
@@ -595,36 +753,77 @@ fn get_repo_status(repo: &Repository) -> Result<Vec<FileStatus>, String> {
     
     let mut files = Vec::new();
     
-        for entry in statuses.iter() {
+    for entry in statuses.iter() {
         let status = entry.status();
         let path = entry.path().unwrap_or("").to_string();
         
-        // Determine if file is staged
-        let staged = status.is_index_new() || 
-                     status.is_index_modified() || 
-                     status.is_index_deleted() || 
-                     status.is_index_renamed() || 
-                     status.is_index_typechange();
+        // Check for staged changes
+        let has_staged = status.is_index_new() || 
+                         status.is_index_modified() || 
+                         status.is_index_deleted() || 
+                         status.is_index_renamed() || 
+                         status.is_index_typechange();
         
-        // Get human-readable status
-        let status_text = if status.is_wt_new() { "New" }
-            else if status.is_wt_modified() { "Modified" }
-            else if status.is_wt_deleted() { "Deleted" }
-            else if status.is_wt_renamed() { "Renamed" }
-            else if status.is_wt_typechange() { "Type changed" }
-            else if status.is_index_new() { "Added" }
-            else if status.is_index_modified() { "Modified" }
-            else if status.is_index_deleted() { "Deleted" }
-            else if status.is_index_renamed() { "Renamed" }
-            else if status.is_index_typechange() { "Type changed" }
-            else { "Unknown" };
+        // Check for unstaged changes  
+        let has_unstaged = status.is_wt_new() ||
+                           status.is_wt_modified() ||
+                           status.is_wt_deleted() ||
+                           status.is_wt_renamed() ||
+                           status.is_wt_typechange();
         
-        files.push(FileStatus {
-            path,
-            status: status_text.to_string(),
-            staged,
-            git_status: status,
-        });
+        // If file has both staged and unstaged changes, we need to create two entries
+        if has_staged && has_unstaged {
+            // Create staged entry
+            let staged_status = if status.is_index_new() { "Added" }
+                else if status.is_index_modified() { "Modified" }
+                else if status.is_index_deleted() { "Deleted" }
+                else if status.is_index_renamed() { "Renamed" }
+                else if status.is_index_typechange() { "Type changed" }
+                else { "Unknown" };
+            
+            files.push(FileStatus {
+                path: path.clone(),
+                status: staged_status.to_string(),
+                staged: true,
+                git_status: status,
+            });
+            
+            // Create unstaged entry
+            let unstaged_status = if status.is_wt_new() { "New" }
+                else if status.is_wt_modified() { "Modified" }
+                else if status.is_wt_deleted() { "Deleted" }
+                else if status.is_wt_renamed() { "Renamed" }
+                else if status.is_wt_typechange() { "Type changed" }
+                else { "Unknown" };
+            
+            files.push(FileStatus {
+                path,
+                status: unstaged_status.to_string(),
+                staged: false,
+                git_status: status,
+            });
+        } else {
+            // File has only staged or only unstaged changes (or neither)
+            let staged = has_staged;
+            let status_text = if status.is_wt_new() { "New" }
+                else if status.is_wt_modified() { "Modified" }
+                else if status.is_wt_deleted() { "Deleted" }
+                else if status.is_wt_renamed() { "Renamed" }
+                else if status.is_wt_typechange() { "Type changed" }
+                else if status.is_index_new() { "Added" }
+                else if status.is_index_modified() { "Modified" }
+                else if status.is_index_deleted() { "Deleted" }
+                else if status.is_index_renamed() { "Renamed" }
+                else if status.is_index_typechange() { "Type changed" }
+                else { "Unknown" };
+            
+            files.push(FileStatus {
+                path,
+                status: status_text.to_string(),
+                staged,
+                git_status: status,
+            });
+        }
     }
     
     Ok(files)
@@ -645,17 +844,16 @@ fn stage_files(repo: &Repository, file_paths: Vec<String>) -> Result<(), String>
     Ok(())
 }
 
-fn unstage_files(repo: &Repository, file_paths: Vec<String>) -> Result<(), String> {
-    let mut index = repo.index()
-        .map_err(|e| format!("Failed to open index: {}", e))?;
+ fn unstage_files(repo: &Repository, file_paths: Vec<String>) -> Result<(), String> {
+    // Get HEAD commit to reset to
+    let head = repo.head()
+        .map_err(|e| format!("Failed to get HEAD: {}", e))?;
+    let commit = head.peel_to_commit()
+        .map_err(|e| format!("Failed to peel HEAD to commit: {}", e))?;
     
-    for path in &file_paths {
-        index.remove_path(std::path::Path::new(path))
-            .map_err(|e| format!("Failed to unstage {}: {}", path, e))?;
-    }
-    
-    index.write()
-        .map_err(|e| format!("Failed to write index: {}", e))?;
+    // Reset the specified files in index to match HEAD
+    repo.reset_default(Some(commit.as_object()), &file_paths)
+        .map_err(|e| format!("Failed to unstage files: {}", e))?;
     
     Ok(())
 }
