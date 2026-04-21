@@ -3,7 +3,10 @@
 //! This component manages and displays recently opened repositories.
 
 use std::collections::VecDeque;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 /// Recent repositories manager
 pub struct RecentRepos {
@@ -60,6 +63,61 @@ impl RecentRepos {
     /// Check if there are no recent repositories
     pub fn is_empty(&self) -> bool {
         self.repos.is_empty()
+    }
+    
+    /// Save recent repositories to a file
+    pub fn save_to_file(&self, path: &Path) -> io::Result<()> {
+        let content = self.repos
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        fs::write(path, content)
+    }
+    
+    /// Load recent repositories from a file
+    pub fn load_from_file(path: &Path) -> io::Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let repos = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| PathBuf::from_str(line.trim()).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid path")))
+            .collect::<Result<VecDeque<_>, _>>()?;
+        
+        Ok(Self {
+            repos,
+            max_count: 10,
+        })
+    }
+    
+    /// Get the default path for storing recent repositories
+    pub fn default_path() -> PathBuf {
+        let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        path.push("git-gud");
+        path.push("recent_repos.txt");
+        path
+    }
+    
+    /// Load recent repositories from default location
+    pub fn load_default() -> Self {
+        let path = Self::default_path();
+        match Self::load_from_file(&path) {
+            Ok(repos) => repos,
+            Err(_) => Self::default(),
+        }
+    }
+    
+    /// Save recent repositories to default location
+    pub fn save_default(&self) -> io::Result<()> {
+        let path = Self::default_path();
+        
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        self.save_to_file(&path)
     }
 }
 

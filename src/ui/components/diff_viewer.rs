@@ -140,7 +140,7 @@ impl DiffViewer {
                 .desired_width(f32::INFINITY)
                 .desired_rows(20)
                 .frame(false)
-                .layouter(&mut |ui, text, wrap_width| {
+                .layouter(&mut |ui, _text, wrap_width| {
                     let mut layout_job = job.clone();
                     layout_job.wrap.max_width = wrap_width;
                     if !self.wrap_lines {

@@ -68,12 +68,6 @@ impl FileList {
         ui.horizontal(|ui| {
             ui.label(format!("{} files", file_count));
             
-            if ui.button("Refresh").clicked() {
-                if let Err(e) = state.refresh_repository() {
-                    state.set_error(format!("Failed to refresh repository: {}", e));
-                }
-            }
-            
             if file_count > 0 {
                 if self.is_staged {
                     if ui.button("Unstage All").clicked() {
@@ -91,10 +85,14 @@ impl FileList {
             }
         });
         
-        // File list with scroll area
-        egui::ScrollArea::vertical()
+        // File list with scroll area - fixed scrollbar positioning
+        let scroll_area = egui::ScrollArea::vertical()
             .max_height(300.0)
-            .show(ui, |ui| {
+            .auto_shrink([false, false]); // Don't shrink, always show scroll area
+        
+        scroll_area.show(ui, |ui| {
+            // Use a container to ensure content fills width
+            ui.vertical(|ui| {
                 if files.is_empty() {
                     ui.label("No files");
                     return;
@@ -117,11 +115,15 @@ impl FileList {
                     return;
                 }
                 
-                // Display each file
+                // Display each file - ensure they fill width
                 for file in filtered_files {
-                    self.show_file(ui, state, file);
+                    ui.horizontal(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        self.show_file(ui, state, file);
+                    });
                 }
             });
+        });
         
         // Batch actions for checked files
         if !self.checked_files.is_empty() {

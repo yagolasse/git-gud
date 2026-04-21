@@ -34,6 +34,9 @@ pub struct MainWindow {
     /// Recent repositories
     recent_repos: RecentRepos,
     
+    /// File watcher service for auto-refresh
+    file_watcher: crate::services::file_watcher_service::SharedFileWatcher,
+    
     /// Whether to show the repository open dialog
     show_open_dialog: bool,
     
@@ -63,7 +66,8 @@ impl MainWindow {
             diff_viewer: crate::ui::DiffViewer::new(),
             commit_panel: crate::ui::CommitPanel::new(),
             error_dialog: ErrorDialog::new(),
-            recent_repos: RecentRepos::default(),
+            recent_repos: RecentRepos::load_default(),
+            file_watcher: crate::services::file_watcher_service::SharedFileWatcher::new(),
             show_open_dialog: true, // Show dialog on startup
             open_repo_path: ".".to_string(),
         };
@@ -85,6 +89,9 @@ impl MainWindow {
     
     /// Show the main window
     pub fn show(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for file changes and trigger auto-refresh
+        self.check_file_changes();
+        
         // Handle pending actions from previous frame
         {
             let mut state = self.state.lock();
@@ -129,6 +136,11 @@ impl MainWindow {
                             state.ui_state.reset();
                             state.clear_error();
                             state.clear_info();
+                            
+                            // Stop file watcher
+                            self.file_watcher.stop_watching();
+                            log::info!("File watcher stopped");
+                            
                             ui.close_menu();
                         }
                     } else {
@@ -147,6 +159,36 @@ impl MainWindow {
                 // Edit menu (placeholder for future)
                 ui.menu_button("Edit", |ui| {
                     ui.label("Edit features coming soon");
+                });
+                
+                // Repository menu
+                ui.menu_button("Repository", |ui| {
+                    // Refresh repository (only enabled if repository is loaded)
+                    if state.has_repository() {
+                        if ui.button("Refresh").clicked() {
+                            if let Err(e) = state.refresh_repository() {
+                                state.set_error(format!("Failed to refresh repository: {}", e));
+                            } else {
+                                state.set_info("Repository refreshed".to_string());
+                            }
+                            ui.close_menu();
+                        }
+                    } else {
+                        ui.add_enabled(false, egui::Button::new("Refresh"));
+                    }
+                    
+                    ui.separator();
+                    
+                    // Show in file explorer (only enabled if repository is loaded)
+                    if state.has_repository() {
+                        if ui.button("Show in File Explorer").clicked() {
+                            // TODO: Implement show in file explorer
+                            state.set_info("Show in file explorer feature not yet implemented".to_string());
+                            ui.close_menu();
+                        }
+                    } else {
+                        ui.add_enabled(false, egui::Button::new("Show in File Explorer"));
+                    }
                 });
                 
                 // View menu (placeholder for future)
@@ -174,6 +216,28 @@ impl MainWindow {
         } else if !self.show_open_dialog {
             // Only show empty state if we're not showing the open dialog
             self.show_empty_state(ctx);
+        }
+    }
+    
+    /// Save recent repositories to disk
+    fn save_recent_repos(&self) {
+        if let Err(e) = self.recent_repos.save_default() {
+            log::error!("Failed to save recent repositories: {}", e);
+        }
+    }
+    
+    /// Check for file changes and trigger refresh if needed
+    fn check_file_changes(&mut self) {
+        if self.file_watcher.is_watching() && self.file_watcher.should_refresh() {
+            log::debug!("File changes detected, triggering refresh");
+            
+            let mut state = self.state.lock();
+            if let Err(e) = state.refresh_repository() {
+                log::error!("Failed to refresh repository after file change: {}", e);
+                state.set_error(format!("Auto-refresh failed: {}", e));
+            } else {
+                log::debug!("Repository refreshed successfully");
+            }
         }
     }
     
@@ -226,18 +290,27 @@ impl MainWindow {
                         let path = PathBuf::from(&self.open_repo_path);
                         let mut state = self.state.lock();
                         
-                        match state.load_repository(path.clone()) {
-                            Ok(_) => {
-                                self.show_open_dialog = false;
-                                state.clear_error();
-                                // Add to recent repos
-                                self.recent_repos.add(&path);
+                            match state.load_repository(path.clone()) {
+                                Ok(_) => {
+                                    self.show_open_dialog = false;
+                                    state.clear_error();
+                                    // Add to recent repos and save
+                                    self.recent_repos.add(&path);
+                                    self.save_recent_repos();
+                                    
+                                    // Start file watcher for auto-refresh
+                                    if let Err(e) = self.file_watcher.start_watching(&path) {
+                                        log::error!("Failed to start file watcher: {}", e);
+                                        state.set_error(format!("Auto-refresh disabled: {}", e));
+                                    } else {
+                                        log::info!("File watcher started for repository");
+                                    }
+                                }
+                                Err(e) => {
+                                    // Error is already set by load_repository
+                                    log::error!("Failed to load repository: {}", e);
+                                }
                             }
-                            Err(e) => {
-                                // Error is already set by load_repository
-                                log::error!("Failed to load repository: {}", e);
-                            }
-                        }
                     }
                 });
             });
@@ -268,25 +341,47 @@ impl MainWindow {
             .resizable(true)
             .default_width(250.0)
             .show(ctx, |ui| {
+                // Add background color
+                let background_color = egui::Color32::from_rgb(30, 30, 35);
+                ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, background_color);
+                
                 let mut state = self.state.lock();
                 self.branch_list.show(ui, &mut state);
             });
         
         // Central panel - Unstaged and Staged files
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Middle panel with two vertical sections
+            // Middle panel with two vertical sections - evenly split
+            let available_height = ui.available_height();
+            let top_height = available_height * 0.5; // 50% for unstaged
+            let bottom_height = available_height * 0.5; // 50% for staged
+            
+            // Unstaged files section with background color
             egui::TopBottomPanel::top("middle_top")
                 .resizable(true)
-                .default_height(300.0)
+                .default_height(top_height)
+                .min_height(150.0)
+                .max_height(available_height - 150.0)
                 .show_inside(ui, |ui| {
+                    // Darker background for unstaged section
+                    let unstaged_bg = egui::Color32::from_rgb(35, 35, 40);
+                    ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, unstaged_bg);
+                    
                     let mut state = self.state.lock();
                     self.unstaged_list.show(ui, &mut state);
                 });
             
+            // Staged files section with background color
             egui::TopBottomPanel::bottom("middle_bottom")
                 .resizable(true)
-                .default_height(300.0)
+                .default_height(bottom_height)
+                .min_height(150.0)
+                .max_height(available_height - 150.0)
                 .show_inside(ui, |ui| {
+                    // Darker background for staged section
+                    let staged_bg = egui::Color32::from_rgb(40, 40, 45);
+                    ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, staged_bg);
+                    
                     let mut state = self.state.lock();
                     self.staged_list.show(ui, &mut state);
                 });
@@ -297,6 +392,10 @@ impl MainWindow {
             .resizable(true)
             .default_width(400.0)
             .show(ctx, |ui| {
+                // Add background color
+                let background_color = egui::Color32::from_rgb(30, 30, 35);
+                ui.painter().rect_filled(ui.available_rect_before_wrap(), 0.0, background_color);
+                
                 // Right panel with two vertical sections
                 egui::TopBottomPanel::top("right_top")
                     .resizable(true)
@@ -315,6 +414,11 @@ impl MainWindow {
                     });
             });
     }
-    
+}
 
+impl Drop for MainWindow {
+    fn drop(&mut self) {
+        // Save recent repositories when the window is closed
+        self.save_recent_repos();
+    }
 }

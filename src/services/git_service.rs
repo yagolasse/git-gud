@@ -207,9 +207,10 @@ impl GitService {
     pub fn unstage_files(repo: &Repository, paths: &[PathBuf]) -> Result<()> {
         log::info!("Unstaging {} files: {:?}", paths.len(), paths);
         
-        let mut index = repo.index()?;
         let repo_path = repo.workdir().unwrap_or_else(|| repo.path().parent().unwrap_or(Path::new(".")));
         
+        // Convert paths to string pathspecs
+        let mut pathspecs = Vec::new();
         for path in paths {
             // Try to convert absolute path to relative path within repository
             let relative_path = if path.is_absolute() {
@@ -225,12 +226,30 @@ impl GitService {
                 path.as_path()
             };
             
-            // Remove from index (this unstages the file)
-            index.remove_path(relative_path)?;
+            pathspecs.push(relative_path.to_string_lossy().to_string());
         }
         
-        index.write()?;
-        log::info!("Files unstaged successfully");
+        // Use reset_default to unstage files (equivalent to git reset HEAD -- <file>)
+        // This handles all cases: modified, added, deleted files
+        if let Some(head) = repo.head().ok() {
+            let target = head.peel_to_commit()?.into_object();
+            
+            // Build array of pathspecs
+            let pathspec_array: Vec<&str> = pathspecs.iter().map(|s| s.as_str()).collect();
+            
+            // Reset the specified paths from HEAD
+            repo.reset_default(Some(&target), &pathspec_array)?;
+            log::info!("Files unstaged successfully using reset_default");
+        } else {
+            // No HEAD (empty repository), just remove new files from index
+            let mut index = repo.index()?;
+            for pathspec in &pathspecs {
+                index.remove_path(Path::new(pathspec))?;
+            }
+            index.write()?;
+            log::info!("Files unstaged successfully (empty repo)");
+        }
+        
         Ok(())
     }
     
