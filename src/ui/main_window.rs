@@ -22,8 +22,8 @@ pub struct MainWindow {
     /// Staged files list component  
     staged_list: crate::ui::FileList,
     
-    /// Diff viewer component
-    diff_viewer: crate::ui::DiffViewer,
+    /// Enhanced diff viewer component
+    diff_viewer: crate::ui::EnhancedDiffViewer,
     
     /// Commit panel component
     commit_panel: crate::ui::CommitPanel,
@@ -63,7 +63,7 @@ impl MainWindow {
             branch_list: crate::ui::BranchList::new(),
             unstaged_list: crate::ui::FileList::new("Unstaged Files", false),
             staged_list: crate::ui::FileList::new("Staged Files", true),
-            diff_viewer: crate::ui::DiffViewer::new(),
+            diff_viewer: crate::ui::EnhancedDiffViewer::new(),
             commit_panel: crate::ui::CommitPanel::new(),
             error_dialog: ErrorDialog::new(),
             recent_repos: RecentRepos::load_default(),

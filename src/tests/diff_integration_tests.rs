@@ -1,6 +1,6 @@
 //! Integration tests for diff viewing features
 
-use crate::models::diff::{DiffConfig, DiffDisplayMode};
+use crate::models::diff::DiffDisplayMode;
 use crate::services::{DiffParser, SyntaxService};
 use crate::ui::components::EnhancedDiffViewer;
 use std::sync::Arc;

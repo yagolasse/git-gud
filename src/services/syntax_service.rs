@@ -196,11 +196,10 @@ impl SyntaxService {
             let highlighted = self.highlight_line(&diff_line.content, syntax);
             // Merge the highlighted job into our job
             for section in highlighted.sections {
-                // Extract text from the original line content
-                // Handle potential byte range issues
+                // Extract text from the highlighted job's text
                 let byte_range = section.byte_range.clone();
-                if byte_range.end <= diff_line.content.len() {
-                    let text = &diff_line.content[byte_range];
+                if byte_range.end <= highlighted.text.len() {
+                    let text = &highlighted.text[byte_range];
                     job.append(text, section.leading_space, section.format.clone());
                 } else {
                     // Fallback: use the full line

@@ -265,14 +265,13 @@ impl EnhancedDiffViewer {
                         
                         // Add the line content
                     for section in line_job.sections {
-                        // Extract text from the original line content
-                        // Handle potential byte range issues
+                        // Extract text from the line_job's text
                         let byte_range = section.byte_range.clone();
-                        if byte_range.end <= line.content.len() {
-                            let text = &line.content[byte_range];
+                        if byte_range.end <= line_job.text.len() {
+                            let text = &line_job.text[byte_range];
                             job.append(text, section.leading_space, section.format.clone());
                         } else {
-                            // Fallback: use the full line
+                            // Fallback: use the full line content
                             job.append(&line.content, section.leading_space, section.format.clone());
                         }
                     }
@@ -443,14 +442,13 @@ impl EnhancedDiffViewer {
                     };
                     
                     for section in line_job.sections {
-                        // Extract text from the original line content
-                        // Handle potential byte range issues
+                        // Extract text from the line_job's text
                         let byte_range = section.byte_range.clone();
-                        if byte_range.end <= line.content.len() {
-                            let text = &line.content[byte_range];
+                        if byte_range.end <= line_job.text.len() {
+                            let text = &line_job.text[byte_range];
                             job.append(text, section.leading_space, section.format.clone());
                         } else {
-                            // Fallback: use the full line
+                            // Fallback: use the full line content
                             job.append(&line.content, section.leading_space, section.format.clone());
                         }
                     }

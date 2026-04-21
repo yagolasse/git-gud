@@ -9,7 +9,7 @@ pub mod repository_view;
 pub mod commit_view;
 
 /// Re-exports for convenience
-pub use components::{BranchList, FileList, DiffViewer, CommitPanel, ErrorDialog, FileDialog, RecentRepos};
+pub use components::{BranchList, FileList, DiffViewer, EnhancedDiffViewer, CommitPanel, ErrorDialog, FileDialog, RecentRepos};
 pub use main_window::MainWindow;
 pub use repository_view::RepositoryView;
 pub use commit_view::CommitView;
