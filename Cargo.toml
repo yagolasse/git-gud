@@ -2,5 +2,48 @@
 name = "git-gud"
 version = "0.1.0"
 edition = "2024"
+description = "A modular Git GUI application with CLI parity"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/git-gud"
+readme = "README.md"
 
 [dependencies]
+# GUI framework
+eframe = "0.27.0"
+egui = "0.27.0"
+egui_extras = "0.27.0"
+
+# Git operations
+git2 = "0.20.0"
+
+# Logging
+log = "0.4.21"
+env_logger = "0.11.3"
+
+# CLI parsing
+clap = { version = "4.5.7", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0.86"
+
+# Serialization
+serde = { version = "1.0.210", features = ["derive"] }
+
+# Temporary files for testing
+tempfile = "3.10.1"
+
+# Better mutex implementation
+parking_lot = "0.12"
+
+# File dialogs
+rfd = "0.14.0"
+
+[dev-dependencies]
+# Test utilities (if needed later)
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
