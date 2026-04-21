@@ -60,6 +60,9 @@ pub struct UIState {
     
     /// Pending action to execute after UI rendering
     pub pending_action: Option<PendingAction>,
+    
+    /// Whether files have been staged/unstaged since last diff refresh
+    pub files_staged_or_unstaged: bool,
 }
 
 impl UIState {
@@ -82,6 +85,7 @@ impl UIState {
             dark_mode: true,
             font_scale: 1.0,
             pending_action: None,
+            files_staged_or_unstaged: false,
         }
     }
     
@@ -196,6 +200,18 @@ impl UIState {
             .collect()
     }
     
+    /// Mark that files have been staged or unstaged
+    pub fn mark_files_staged_or_unstaged(&mut self) {
+        self.files_staged_or_unstaged = true;
+    }
+    
+    /// Check if files have been staged/unstaged and reset the flag
+    pub fn check_and_reset_staged_unstaged(&mut self) -> bool {
+        let result = self.files_staged_or_unstaged;
+        self.files_staged_or_unstaged = false;
+        result
+    }
+    
     /// Reset UI state to defaults (except for panel sizes)
     pub fn reset(&mut self) {
         self.selected_branch = None;
@@ -207,5 +223,6 @@ impl UIState {
         self.branch_filter.clear();
         self.selected_remote = None;
         self.pending_action = None;
+        self.files_staged_or_unstaged = false;
     }
 }

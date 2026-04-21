@@ -3,6 +3,7 @@
 //! This component displays diffs for selected files.
 
 use crate::state::AppState;
+use crate::services::GitService;
 use eframe::egui;
 
 /// Diff viewer UI component
@@ -15,6 +16,9 @@ pub struct DiffViewer {
     
     /// Whether to wrap lines
     wrap_lines: bool,
+    
+    /// Last selected file path (to detect changes)
+    last_selected_file: Option<std::path::PathBuf>,
 }
 
 impl DiffViewer {
@@ -24,12 +28,25 @@ impl DiffViewer {
             diff_text: String::new(),
             show_line_numbers: true,
             wrap_lines: false,
+            last_selected_file: None,
         }
     }
     
     /// Show the diff viewer component
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
         ui.heading("Diff View");
+        
+        // Check if we need to refresh the diff
+        let current_selected_file = state.ui_state.selected_file_path().cloned();
+        let needs_refresh = current_selected_file != self.last_selected_file;
+        
+        // Also check if files have been staged/unstaged
+        let files_changed = state.ui_state.check_and_reset_staged_unstaged();
+        
+        if needs_refresh || files_changed {
+            self.refresh_diff(state);
+            self.last_selected_file = current_selected_file;
+        }
         
         // Options toolbar
         ui.horizontal(|ui| {
@@ -61,7 +78,9 @@ impl DiffViewer {
         
         let selected_file = state.ui_state.selected_file_path().unwrap();
         ui.label(format!("Selected: {}", selected_file.display()));
-        ui.label("Diff viewer will be implemented in Slice 3");
+        
+        // Show actual diff text
+        self.show_diff_text(ui);
     }
     
     /// Refresh the diff for the currently selected file
@@ -72,26 +91,24 @@ impl DiffViewer {
         }
         
         let selected_file = state.ui_state.selected_file_path().unwrap();
-        let _repo_state = state.repository_state();
         
-        // TODO: Load actual diff from Git service
-        // For now, show a placeholder
-        self.diff_text = format!(
-            "Diff for: {}\n\n\
-            --- a/{}\n\
-            +++ b/{}\n\
-            @@ -1,3 +1,4 @@\n\
-            // Example diff\n\
-            -removed line\n\
-            +added line\n\
-             unchanged line\n\
-            +another added line",
-            selected_file.display(),
-            selected_file.display(),
-            selected_file.display()
-        );
-        
-        log::debug!("Refreshed diff for file: {:?}", selected_file);
+        // Get actual diff from Git service
+        if let Some(repo_state) = &state.repository_state {
+            match GitService::get_file_diff(&repo_state.repository, selected_file) {
+                Ok(diff) => {
+                    self.diff_text = diff;
+                    log::debug!("Loaded diff for file: {:?} ({} bytes)", 
+                               selected_file, self.diff_text.len());
+                }
+                Err(e) => {
+                    self.diff_text = format!("Error loading diff: {}", e);
+                    log::error!("Failed to load diff for file {:?}: {}", selected_file, e);
+                    state.set_error(format!("Failed to load diff: {}", e));
+                }
+            }
+        } else {
+            self.diff_text = "No repository loaded".to_string();
+        }
     }
     
     /// Display diff text with syntax highlighting
@@ -154,6 +171,12 @@ impl DiffViewer {
     /// Clear the current diff
     pub fn clear(&mut self) {
         self.diff_text.clear();
+        self.last_selected_file = None;
+    }
+    
+    /// Force refresh of the diff (e.g., when file is staged/unstaged)
+    pub fn force_refresh(&mut self) {
+        self.last_selected_file = None;
     }
 }
 

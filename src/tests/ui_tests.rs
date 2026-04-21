@@ -38,3 +38,28 @@ fn test_error_dialog_default() {
     let dialog = ErrorDialog::default();
     assert!(!dialog.is_visible());
 }
+
+/// Test staging/unstaging notification mechanism
+#[test]
+fn test_staging_unstaging_notification() {
+    use crate::state::UIState;
+    
+    let mut ui_state = UIState::new();
+    
+    // Initially should be false
+    assert!(!ui_state.check_and_reset_staged_unstaged());
+    
+    // Mark as staged/unstaged
+    ui_state.mark_files_staged_or_unstaged();
+    
+    // Should return true and reset
+    assert!(ui_state.check_and_reset_staged_unstaged());
+    
+    // Should be false again after reset
+    assert!(!ui_state.check_and_reset_staged_unstaged());
+    
+    // Test reset method clears the flag
+    ui_state.mark_files_staged_or_unstaged();
+    ui_state.reset();
+    assert!(!ui_state.check_and_reset_staged_unstaged());
+}

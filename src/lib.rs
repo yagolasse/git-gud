@@ -1,4 +1,4 @@
-//! Git Gud - A modular Git GUI application with CLI parity
+//! Git Gud - A modular Git GUI application
 //!
 //! This library provides the core functionality for the Git Gud application,
 //! including Git operations, repository management, and logging utilities.

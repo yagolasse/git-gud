@@ -11,10 +11,10 @@ Git Gud is a modular Git GUI application built with Rust, using egui for the use
 - Models separate from services
 - Tests separate from implementation
 
-### 2. Dual Interface
-- GUI and CLI share the same service layer
-- CLI provides equivalent functionality for testing
-- Both interfaces log all operations consistently
+### 2. GUI-First Design
+- Service layer optimized for GUI interactions
+- All operations logged for debugging and testing
+- Consistent user experience across all features
 
 ### 3. Comprehensive Logging
 - Log all Git operations with parameters
@@ -38,7 +38,6 @@ Git Gud is a modular Git GUI application built with Rust, using egui for the use
 ```
 src/
 ├── main.rs              # GUI application entry point
-├── cli.rs              # CLI application entry point
 ├── lib.rs              # Library exports and module declarations
 ├── models/             # Data structures and domain models
 │   ├── mod.rs         # Module exports

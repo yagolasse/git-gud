@@ -163,6 +163,7 @@ impl AppState {
                         self.set_error(format!("Failed to stage all files: {}", e));
                     } else {
                         self.set_info(format!("Staged {} files", paths.len()));
+                        self.ui_state.mark_files_staged_or_unstaged();
                     }
                 }
                 super::ui_state::PendingAction::UnstageAll(paths) => {
@@ -170,6 +171,7 @@ impl AppState {
                         self.set_error(format!("Failed to unstage all files: {}", e));
                     } else {
                         self.set_info(format!("Unstaged {} files", paths.len()));
+                        self.ui_state.mark_files_staged_or_unstaged();
                     }
                 }
                 super::ui_state::PendingAction::StageSelected(paths) => {
@@ -177,6 +179,7 @@ impl AppState {
                         self.set_error(format!("Failed to stage selected files: {}", e));
                     } else {
                         self.set_info(format!("Staged {} files", paths.len()));
+                        self.ui_state.mark_files_staged_or_unstaged();
                     }
                 }
                 super::ui_state::PendingAction::UnstageSelected(paths) => {
@@ -184,6 +187,7 @@ impl AppState {
                         self.set_error(format!("Failed to unstage selected files: {}", e));
                     } else {
                         self.set_info(format!("Unstaged {} files", paths.len()));
+                        self.ui_state.mark_files_staged_or_unstaged();
                     }
                 }
                 super::ui_state::PendingAction::CheckoutBranch(branch_name) => {

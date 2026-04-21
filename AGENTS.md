@@ -116,7 +116,6 @@ These tasks have dependencies and require coordination:
 | AGENTS.md | Main | None | This file |
 | Cargo.toml | Main | None | Dependency setup |
 | Basic GUI window | Agent 1 | Cargo.toml | Dark mode, logging |
-| CLI structure | Agent 2 | Cargo.toml | Subcommand parsing |
 | Library structure | Main | None | Module declarations |
 
 ### Phase 2: Service Layer (Parallelizable)
@@ -147,7 +146,6 @@ These tasks have dependencies and require coordination:
 ### Phase 5: Integration (Sequential)
 | Task | Agent | Dependencies | Notes |
 |------|-------|--------------|-------|
-| CLI commands | Main | All services | Implement all CLI commands |
 | GUI integration | Main | All UI components | Wire up UI to services |
 | Integration tests | Main | Everything | End-to-end testing |
 | Documentation | Main | Everything | Update docs |

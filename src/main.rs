@@ -1,15 +1,16 @@
 
 
-mod cli;
-
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     
-    if args.len() > 1 && args[1] != "gui" {
-        cli::run()
+    // If a path is provided as first argument, open it in GUI
+    let initial_path = if args.len() > 1 {
+        Some(std::path::PathBuf::from(&args[1]))
     } else {
-        run_gui()
-    }
+        None
+    };
+    
+    run_gui_with_path(initial_path)
 }
 
 fn run_gui() -> anyhow::Result<()> {

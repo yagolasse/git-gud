@@ -201,6 +201,7 @@ impl FileList {
                             state.set_error(format!("Failed to unstage file: {}", e));
                         } else {
                             state.set_info(format!("Unstaged: {}", file.path.display()));
+                            state.ui_state.mark_files_staged_or_unstaged();
                         }
                         ui.close_menu();
                     }
@@ -210,6 +211,7 @@ impl FileList {
                             state.set_error(format!("Failed to stage file: {}", e));
                         } else {
                             state.set_info(format!("Staged: {}", file.path.display()));
+                            state.ui_state.mark_files_staged_or_unstaged();
                         }
                         ui.close_menu();
                     }

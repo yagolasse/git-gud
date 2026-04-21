@@ -2,7 +2,7 @@
 name = "git-gud"
 version = "0.1.0"
 edition = "2024"
-description = "A modular Git GUI application with CLI parity"
+description = "A modular Git GUI application"
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/git-gud"
@@ -21,8 +21,7 @@ git2 = "0.20.0"
 log = "0.4.21"
 env_logger = "0.11.3"
 
-# CLI parsing
-clap = { version = "4.5.7", features = ["derive"] }
+
 
 # Error handling
 anyhow = "1.0.86"
