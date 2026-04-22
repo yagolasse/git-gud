@@ -10,6 +10,8 @@ use eframe::egui;
 pub struct BranchList {
     /// Filter text for branches
     filter: String,
+    /// Whether the filter input is visible
+    filter_visible: bool,
 }
 
 impl BranchList {
@@ -17,23 +19,57 @@ impl BranchList {
     pub fn new() -> Self {
         Self {
             filter: String::new(),
+            filter_visible: false,
         }
     }
 
     /// Show the branch list component
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        ui.heading("Branches");
-
-        // Filter input
+        // Header with icons
         ui.horizontal(|ui| {
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.filter);
-            if ui.button("✕").clicked() {
-                self.filter.clear();
-            }
+            // Left: Heading
+            ui.heading("Branches");
+
+            // Right: Icons (search and add)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Add branch button (➕)
+                if ui.button("➕").on_hover_text("Create new branch").clicked() {
+                    // TODO: Implement branch creation dialog
+                    state.set_info("Create branch dialog not yet implemented".to_string());
+                }
+
+                ui.add_space(4.0);
+
+                // Search toggle button (🔍) - highlighted when filter visible
+                let mut search_button = egui::Button::new("🔍");
+                if self.filter_visible {
+                    search_button = search_button.fill(egui::Color32::from_rgb(60, 60, 70));
+                }
+                let search_response = ui.add(search_button);
+
+                if search_response
+                    .on_hover_text("Toggle search filter")
+                    .clicked()
+                {
+                    self.filter_visible = !self.filter_visible;
+                    if !self.filter_visible {
+                        self.filter.clear(); // Reset filtering when collapsing
+                    }
+                }
+            });
         });
 
-        ui.separator();
+        // Show filter only when visible
+        if self.filter_visible {
+            ui.horizontal(|ui| {
+                ui.label("Filter:");
+                ui.text_edit_singleline(&mut self.filter);
+                if ui.button("✕").clicked() {
+                    self.filter.clear();
+                }
+            });
+            ui.separator();
+        }
 
         // Check if repository is loaded
         if !state.has_repository() {
@@ -65,7 +101,7 @@ impl BranchList {
 
         // Display branches with fixed scrollbar positioning
         let scroll_area = egui::ScrollArea::vertical()
-            .max_height(ui.available_height() - 100.0)
+            .max_height(ui.available_height())
             .auto_shrink([false, false]); // Don't shrink, always show scroll area
 
         scroll_area.show(ui, |ui| {
@@ -98,16 +134,6 @@ impl BranchList {
                 state.set_info(format!("Checked out branch: {}", branch_name));
             }
         }
-
-        ui.separator();
-
-        // Branch actions
-        ui.horizontal(|ui| {
-            if ui.button("New Branch").clicked() {
-                // TODO: Implement create branch dialog
-                state.set_info("Create branch feature not yet implemented".to_string());
-            }
-        });
     }
 
     /// Show a single branch item UI and return interaction flags
@@ -175,5 +201,17 @@ impl BranchList {
 impl Default for BranchList {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_branch_list_new() {
+        let list = BranchList::new();
+        assert!(list.filter.is_empty());
+        assert!(!list.filter_visible);
     }
 }

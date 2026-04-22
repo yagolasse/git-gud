@@ -116,7 +116,10 @@ impl FileWatcherService {
     /// Check if an event is relevant for triggering a refresh
     fn is_relevant_event(event: &Event) -> bool {
         // We're interested in file modifications, creations, deletions, and renames
-        matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_))
+        matches!(
+            event.kind,
+            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+        )
     }
 
     /// Check if the watcher is currently active

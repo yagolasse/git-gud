@@ -164,7 +164,9 @@ impl EnhancedDiffViewer {
             ui.separator();
 
             // Action buttons
-            if ui.button("Copy").clicked() && let Some(ref unified) = self.unified_diff {
+            if ui.button("Copy").clicked()
+                && let Some(ref unified) = self.unified_diff
+            {
                 let diff_text = unified
                     .lines
                     .iter()

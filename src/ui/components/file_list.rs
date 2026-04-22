@@ -20,6 +20,9 @@ pub struct FileList {
 
     /// Filter text for files
     filter: String,
+
+    /// Whether the filter input is visible
+    filter_visible: bool,
 }
 
 impl FileList {
@@ -30,13 +33,12 @@ impl FileList {
             is_staged,
             checked_files: std::collections::HashSet::new(),
             filter: String::new(),
+            filter_visible: false,
         }
     }
 
     /// Show the file list component
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        ui.heading(&self.title);
-
         if !state.has_repository() {
             ui.label("No repository loaded");
             return;
@@ -54,38 +56,62 @@ impl FileList {
 
         let file_count = files.len();
 
-        // Filter input
+        // Header with title and icons
         ui.horizontal(|ui| {
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.filter);
+            // Left: Heading with file count
+            let title_with_count = format!("{} ({})", self.title, file_count);
+            ui.heading(&title_with_count);
 
-            if ui.button("Clear").clicked() {
-                self.filter.clear();
-            }
-        });
-
-        // File count and action buttons
-        ui.horizontal(|ui| {
-            ui.label(format!("{} files", file_count));
-
-            if file_count > 0 {
-                if self.is_staged {
-                    if ui.button("Unstage All").clicked() {
-                        let all_paths: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
-                        // We need to modify state, so we'll handle this after the UI rendering
-                        state.ui_state.pending_action =
-                            Some(crate::state::PendingAction::UnstageAll(all_paths));
+            // Right: Icons (search and stage/unstage all)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Stage/Unstage All button (text button)
+                if file_count > 0 {
+                    if self.is_staged {
+                        if ui.button("Unstage All").clicked() {
+                            let all_paths: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
+                            state.ui_state.pending_action =
+                                Some(crate::state::PendingAction::UnstageAll(all_paths));
+                        }
+                    } else {
+                        if ui.button("Stage All").clicked() {
+                            let all_paths: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
+                            state.ui_state.pending_action =
+                                Some(crate::state::PendingAction::StageAll(all_paths));
+                        }
                     }
-                } else {
-                    if ui.button("Stage All").clicked() {
-                        let all_paths: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
-                        // We need to modify state, so we'll handle this after the UI rendering
-                        state.ui_state.pending_action =
-                            Some(crate::state::PendingAction::StageAll(all_paths));
+                    ui.add_space(8.0);
+                }
+
+                // Search toggle button (🔍) - highlighted when filter visible
+                let mut search_button = egui::Button::new("🔍");
+                if self.filter_visible {
+                    search_button = search_button.fill(egui::Color32::from_rgb(60, 60, 70));
+                }
+                let search_response = ui.add(search_button);
+
+                if search_response
+                    .on_hover_text("Toggle search filter")
+                    .clicked()
+                {
+                    self.filter_visible = !self.filter_visible;
+                    if !self.filter_visible {
+                        self.filter.clear(); // Reset filtering when collapsing
                     }
                 }
-            }
+            });
         });
+
+        // Show filter only when visible
+        if self.filter_visible {
+            ui.horizontal(|ui| {
+                ui.label("Filter:");
+                ui.text_edit_singleline(&mut self.filter);
+                if ui.button("✕").clicked() {
+                    self.filter.clear();
+                }
+            });
+            ui.separator();
+        }
 
         // File list with scroll area - fixed scrollbar positioning
         let scroll_area = egui::ScrollArea::vertical()
@@ -259,5 +285,27 @@ impl FileList {
     /// Clear checked files
     pub fn clear_checked(&mut self) {
         self.checked_files.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_list_new() {
+        let list = FileList::new("Unstaged Files", false);
+        assert_eq!(list.title, "Unstaged Files");
+        assert!(!list.is_staged);
+        assert!(list.checked_files.is_empty());
+        assert!(list.filter.is_empty());
+        assert!(!list.filter_visible);
+    }
+
+    #[test]
+    fn test_clear_checked() {
+        let mut list = FileList::new("Test", false);
+        list.clear_checked();
+        assert!(list.checked_files.is_empty());
     }
 }

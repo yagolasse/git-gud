@@ -167,8 +167,7 @@ impl DiffLine {
 }
 
 /// Side-by-side diff representation
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SideBySideDiff {
     /// Left side lines (old file)
     pub left_lines: Vec<DiffLine>,
