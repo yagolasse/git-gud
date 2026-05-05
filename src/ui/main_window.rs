@@ -339,83 +339,48 @@ impl MainWindow {
 
     /// Show main UI with three-panel layout
     fn show_main_ui(&mut self, ctx: &egui::Context) {
-        // Left panel - Branches
-        // Left panel - Branches
-        let left_frame = egui::Frame {
-            fill: egui::Color32::from_rgb(30, 30, 35),
+        // Side panels must be declared BEFORE CentralPanel for correct z-ordering
+
+        // Common frame style: zero margins, fill covers entire panel area
+        let panel_frame = egui::Frame {
+            inner_margin: egui::Margin::ZERO,
             outer_margin: egui::Margin::ZERO,
             ..Default::default()
         };
 
+        // Left panel - Branches
         egui::SidePanel::left("left_panel")
             .resizable(true)
             .default_width(250.0)
-            .frame(left_frame)
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(30, 30, 35),
+                ..panel_frame
+            })
             .show(ctx, |ui| {
                 let mut state = self.state.lock();
                 self.branch_list.show(ui, &mut state);
             });
 
-        // Central panel - Unstaged and Staged files
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Middle panel with two vertical sections - evenly split
-            let available_height = ui.available_height();
-            let top_height = available_height * 0.5; // 50% for unstaged
-            let bottom_height = available_height * 0.5; // 50% for staged
-
-            // Unstaged files section with frame styling
-            let unstaged_frame = egui::Frame {
-                fill: egui::Color32::from_rgb(35, 35, 40),
-                outer_margin: egui::Margin::ZERO,
-                ..Default::default()
-            };
-
-            egui::TopBottomPanel::top("middle_top")
-                .resizable(true)
-                .default_height(top_height)
-                .min_height(150.0)
-                .max_height(available_height - 150.0)
-                .frame(unstaged_frame)
-                .show_inside(ui, |ui| {
-                    let mut state = self.state.lock();
-                    self.unstaged_list.show(ui, &mut state);
-                });
-
-            // Staged files section with frame styling
-            let staged_frame = egui::Frame {
-                fill: egui::Color32::from_rgb(40, 40, 45),
-                outer_margin: egui::Margin::ZERO,
-                ..Default::default()
-            };
-
-            egui::TopBottomPanel::bottom("middle_bottom")
-                .resizable(true)
-                .default_height(bottom_height)
-                .min_height(150.0)
-                .max_height(available_height - 150.0)
-                .frame(staged_frame)
-                .show_inside(ui, |ui| {
-                    let mut state = self.state.lock();
-                    self.staged_list.show(ui, &mut state);
-                });
-        });
-
-        // Right panel - Diff view and Commit
-        let right_frame = egui::Frame {
-            fill: egui::Color32::from_rgb(30, 30, 35),
-            outer_margin: egui::Margin::ZERO,
-            ..Default::default()
-        };
-
+        // Right panel - Diff view and Commit (declared before central for z-order)
         egui::SidePanel::right("right_panel")
             .resizable(true)
             .default_width(400.0)
-            .frame(right_frame)
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(30, 30, 35),
+                ..panel_frame
+            })
             .show(ctx, |ui| {
-                // Right panel with two vertical sections
+                let available = ui.available_height();
+                let top_default = (available * 0.6).max(150.0);
+
                 egui::TopBottomPanel::top("right_top")
                     .resizable(true)
-                    .default_height(400.0)
+                    .default_height(top_default)
+                    .min_height(150.0)
+                    .frame(egui::Frame {
+                        fill: egui::Color32::from_rgb(30, 30, 35),
+                        ..panel_frame
+                    })
                     .show_inside(ui, |ui| {
                         let mut state = self.state.lock();
                         self.diff_viewer.show(ui, &mut state);
@@ -423,10 +388,50 @@ impl MainWindow {
 
                 egui::TopBottomPanel::bottom("right_bottom")
                     .resizable(true)
-                    .default_height(200.0)
+                    .min_height(150.0)
+                    .frame(egui::Frame {
+                        fill: egui::Color32::from_rgb(30, 30, 35),
+                        ..panel_frame
+                    })
                     .show_inside(ui, |ui| {
                         let mut state = self.state.lock();
                         self.commit_panel.show(ui, &mut state);
+                    });
+            });
+
+        // Central panel - Unstaged and Staged files (declared last so it fills remaining space)
+        egui::CentralPanel::default()
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(38, 38, 43),
+                ..panel_frame
+            })
+            .show(ctx, |ui| {
+                let available = ui.available_height();
+                let top_default = (available * 0.5).max(150.0);
+
+                egui::TopBottomPanel::top("middle_top")
+                    .resizable(true)
+                    .default_height(top_default)
+                    .min_height(150.0)
+                    .frame(egui::Frame {
+                        fill: egui::Color32::from_rgb(35, 35, 40),
+                        ..panel_frame
+                    })
+                    .show_inside(ui, |ui| {
+                        let mut state = self.state.lock();
+                        self.unstaged_list.show(ui, &mut state);
+                    });
+
+                egui::TopBottomPanel::bottom("middle_bottom")
+                    .resizable(true)
+                    .min_height(150.0)
+                    .frame(egui::Frame {
+                        fill: egui::Color32::from_rgb(42, 42, 47),
+                        ..panel_frame
+                    })
+                    .show_inside(ui, |ui| {
+                        let mut state = self.state.lock();
+                        self.staged_list.show(ui, &mut state);
                     });
             });
     }
