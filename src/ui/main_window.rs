@@ -58,9 +58,6 @@ impl MainWindow {
         // Set dark mode
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-        // Set dark mode
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
-
         let mut window = Self {
             state: Arc::new(Mutex::new(AppState::new())),
             branch_list: crate::ui::BranchList::new(),
@@ -387,8 +384,6 @@ impl MainWindow {
                     });
 
                 egui::TopBottomPanel::bottom("right_bottom")
-                    .resizable(true)
-                    .min_height(150.0)
                     .frame(egui::Frame {
                         fill: egui::Color32::from_rgb(30, 30, 35),
                         ..panel_frame
@@ -402,7 +397,7 @@ impl MainWindow {
         // Central panel - Unstaged and Staged files (declared last so it fills remaining space)
         egui::CentralPanel::default()
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(38, 38, 43),
+                fill: egui::Color32::from_rgb(42, 42, 47),
                 ..panel_frame
             })
             .show(ctx, |ui| {
@@ -414,7 +409,7 @@ impl MainWindow {
                     .default_height(top_default)
                     .min_height(150.0)
                     .frame(egui::Frame {
-                        fill: egui::Color32::from_rgb(35, 35, 40),
+                        fill: egui::Color32::from_rgb(42, 42, 47),
                         ..panel_frame
                     })
                     .show_inside(ui, |ui| {
@@ -423,8 +418,6 @@ impl MainWindow {
                     });
 
                 egui::TopBottomPanel::bottom("middle_bottom")
-                    .resizable(true)
-                    .min_height(150.0)
                     .frame(egui::Frame {
                         fill: egui::Color32::from_rgb(42, 42, 47),
                         ..panel_frame

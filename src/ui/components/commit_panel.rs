@@ -7,9 +7,6 @@ use eframe::egui;
 
 /// Commit panel UI component
 pub struct CommitPanel {
-    /// Whether to show advanced options
-    show_advanced: bool,
-
     /// Author name override
     author_name: String,
 
@@ -21,7 +18,6 @@ impl CommitPanel {
     /// Create a new commit panel component
     pub fn new() -> Self {
         Self {
-            show_advanced: false,
             author_name: String::new(),
             author_email: String::new(),
         }
@@ -119,7 +115,7 @@ impl CommitPanel {
         // Commit button and actions
         ui.horizontal(|ui| {
             // Commit button
-            let commit_enabled = state.repository_state().staged_files.len() > 0
+            let commit_enabled = !state.repository_state().staged_files.is_empty()
                 && state.ui_state.is_commit_message_valid();
 
             if ui

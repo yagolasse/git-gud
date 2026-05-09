@@ -11,10 +11,6 @@ fn main() -> anyhow::Result<()> {
     run_gui_with_path(initial_path)
 }
 
-fn run_gui() -> anyhow::Result<()> {
-    run_gui_with_path(None)
-}
-
 fn run_gui_with_path(initial_path: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     use eframe::egui;
 
@@ -48,6 +44,7 @@ struct GitGudApp {
 }
 
 impl GitGudApp {
+    #[allow(dead_code)]
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::new_with_path(cc, None)
     }

@@ -113,9 +113,12 @@ impl FileList {
             ui.separator();
         }
 
-        // File list with scroll area - fixed scrollbar positioning
+        // Reserve height for the batch actions footer when files are selected
+        let reserved = if !self.checked_files.is_empty() { 60.0 } else { 0.0 };
+        let scroll_max = (ui.available_height() - reserved).max(100.0);
+
         let scroll_area = egui::ScrollArea::vertical()
-            .max_height(300.0)
+            .max_height(scroll_max)
             .auto_shrink([false, false]); // Don't shrink, always show scroll area
 
         scroll_area.show(ui, |ui| {
@@ -283,7 +286,7 @@ impl FileList {
     }
 
     /// Clear checked files
-    pub fn clear_checked(&mut self) {
+    fn clear_checked(&mut self) {
         self.checked_files.clear();
     }
 }

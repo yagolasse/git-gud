@@ -3,6 +3,8 @@
 //! This component provides efficient scrolling for large lists by only
 //! rendering visible items.
 
+#![allow(dead_code)]
+
 use eframe::egui;
 use std::ops::Range;
 
