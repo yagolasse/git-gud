@@ -30,17 +30,11 @@ pub struct EnhancedDiffViewer {
     /// Last selected file path (to detect changes)
     last_selected_file: Option<PathBuf>,
 
-    /// Scroll position for unified view
-    unified_scroll_offset: f32,
-
-    /// Scroll position for left side of side-by-side view
-    side_by_side_left_scroll: f32,
-
-    /// Scroll position for right side of side-by-side view
-    side_by_side_right_scroll: f32,
-
-    /// Whether scroll positions are synchronized
+    /// Whether scroll positions are synchronized in side-by-side view
     scroll_synced: bool,
+
+    /// Left column scroll Y from the previous frame, used to drive sync scrolling
+    sync_scroll_y: f32,
 }
 
 impl EnhancedDiffViewer {
@@ -53,10 +47,8 @@ impl EnhancedDiffViewer {
             diff_parser: DiffParser::new(),
             syntax_service: Arc::new(SyntaxService::new()),
             last_selected_file: None,
-            unified_scroll_offset: 0.0,
-            side_by_side_left_scroll: 0.0,
-            side_by_side_right_scroll: 0.0,
             scroll_synced: true,
+            sync_scroll_y: 0.0,
         }
     }
 
@@ -69,10 +61,8 @@ impl EnhancedDiffViewer {
             diff_parser: DiffParser::new(),
             syntax_service,
             last_selected_file: None,
-            unified_scroll_offset: 0.0,
-            side_by_side_left_scroll: 0.0,
-            side_by_side_right_scroll: 0.0,
             scroll_synced: true,
+            sync_scroll_y: 0.0,
         }
     }
 
@@ -190,206 +180,179 @@ impl EnhancedDiffViewer {
 
     /// Show unified diff view
     fn show_unified_view(&mut self, ui: &mut egui::Ui, file_path: &std::path::Path) {
-        if let Some(ref unified_diff) = self.unified_diff {
-            if unified_diff.is_binary {
-                ui.label("Binary files differ");
-                return;
-            }
-
-            if unified_diff.lines.is_empty() {
-                ui.label("No changes");
-                return;
-            }
-
-            // Show diff statistics
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "+{} -{}",
-                    unified_diff.lines_added, unified_diff.lines_removed
-                ));
-            });
-
-            // Create scroll area for unified view
-            egui::ScrollArea::vertical()
-                .id_source("unified_diff_scroll")
-                .scroll_offset(egui::Vec2::new(0.0, self.unified_scroll_offset))
-                .show(ui, |ui| {
-                    let mut job = egui::text::LayoutJob::default();
-
-                    // Build highlighted layout job
-                    let syntax = if self.config.syntax_highlighting {
-                        self.syntax_service.detect_syntax(file_path)
-                    } else {
-                        None
-                    };
-
-                    for line in &unified_diff.lines {
-                        let line_job = if self.config.syntax_highlighting {
-                            self.syntax_service.highlight_diff_line(line, syntax)
-                        } else {
-                            // Basic highlighting without syntax
-                            let color = match line.change_type {
-                                crate::models::diff::LineChangeType::Added => {
-                                    egui::Color32::DARK_GREEN
-                                }
-                                crate::models::diff::LineChangeType::Removed => {
-                                    egui::Color32::DARK_RED
-                                }
-                                crate::models::diff::LineChangeType::HunkHeader => {
-                                    egui::Color32::BLUE
-                                }
-                                crate::models::diff::LineChangeType::FileHeader => {
-                                    egui::Color32::GRAY
-                                }
-                                _ => egui::Color32::WHITE,
-                            };
-
-                            let mut job = egui::text::LayoutJob::default();
-                            if line.prefix != ' ' {
-                                job.append(
-                                    &line.prefix.to_string(),
-                                    0.0,
-                                    egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
-                                );
-                            }
-                            job.append(
-                                &line.content,
-                                0.0,
-                                egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
-                            );
-                            job
-                        };
-
-                        // Add line number if enabled
-                        if self.config.show_line_numbers {
-                            let line_num = line
-                                .left_line_num
-                                .or(line.right_line_num)
-                                .map(|n| n.to_string())
-                                .unwrap_or_else(|| "".to_string());
-
-                            let line_num_text = format!("{:>4}: ", line_num);
-                            job.append(
-                                &line_num_text,
-                                0.0,
-                                egui::TextFormat::simple(
-                                    egui::FontId::monospace(12.0),
-                                    egui::Color32::GRAY,
-                                ),
-                            );
-                        }
-
-                        // Add the line content
-                        for section in line_job.sections {
-                            // Extract text from the line_job's text
-                            let byte_range = section.byte_range.clone();
-                            if byte_range.end <= line_job.text.len() {
-                                let text = &line_job.text[byte_range];
-                                job.append(text, section.leading_space, section.format.clone());
-                            } else {
-                                // Fallback: use the full line content
-                                job.append(
-                                    &line.content,
-                                    section.leading_space,
-                                    section.format.clone(),
-                                );
-                            }
-                        }
-
-                        // Add newline
-                        job.append("\n", 0.0, egui::TextFormat::default());
-                    }
-
-                    // Display the job
-                    ui.add(
-                        egui::TextEdit::multiline(&mut String::new())
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(20)
-                            .frame(false)
-                            .layouter(&mut |ui, _text, wrap_width| {
-                                let mut layout_job = job.clone();
-                                layout_job.wrap.max_width = wrap_width;
-                                if !self.config.wrap_lines {
-                                    layout_job.wrap.max_width = f32::INFINITY;
-                                }
-                                ui.fonts(|f| f.layout_job(layout_job))
-                            }),
-                    );
-                });
-        } else {
+        let Some(ref unified_diff) = self.unified_diff else {
             ui.label("No diff loaded");
+            return;
+        };
+
+        if unified_diff.is_binary {
+            ui.label("Binary files differ");
+            return;
         }
+
+        if unified_diff.lines.is_empty() {
+            ui.label("No changes");
+            return;
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "+{} -{}",
+                unified_diff.lines_added, unified_diff.lines_removed
+            ));
+        });
+
+        let syntax = if self.config.syntax_highlighting {
+            self.syntax_service.detect_syntax(file_path)
+        } else {
+            None
+        };
+
+        let wrap_lines = self.config.wrap_lines;
+        let show_line_numbers = self.config.show_line_numbers;
+
+        // Build the layout job before entering the scroll area so we can move
+        // it into the Label without lifetime issues.
+        let mut job = egui::text::LayoutJob::default();
+        if !wrap_lines {
+            job.wrap.max_width = f32::INFINITY;
+        }
+
+        for line in &unified_diff.lines {
+            // Line number column
+            if show_line_numbers {
+                let n = line
+                    .left_line_num
+                    .or(line.right_line_num)
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                job.append(
+                    &format!("{n:>4}: "),
+                    0.0,
+                    egui::TextFormat::simple(egui::FontId::monospace(12.0), egui::Color32::GRAY),
+                );
+            }
+
+            // Line content
+            let line_job = if self.config.syntax_highlighting {
+                self.syntax_service.highlight_diff_line(line, syntax)
+            } else {
+                let color = match line.change_type {
+                    crate::models::diff::LineChangeType::Added => egui::Color32::DARK_GREEN,
+                    crate::models::diff::LineChangeType::Removed => egui::Color32::DARK_RED,
+                    crate::models::diff::LineChangeType::HunkHeader => egui::Color32::BLUE,
+                    crate::models::diff::LineChangeType::FileHeader => egui::Color32::GRAY,
+                    _ => egui::Color32::WHITE,
+                };
+                let mut j = egui::text::LayoutJob::default();
+                if line.prefix != ' ' {
+                    j.append(
+                        &line.prefix.to_string(),
+                        0.0,
+                        egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
+                    );
+                }
+                j.append(
+                    &line.content,
+                    0.0,
+                    egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
+                );
+                j
+            };
+
+            for section in &line_job.sections {
+                let byte_range = section.byte_range.clone();
+                if byte_range.end <= line_job.text.len() {
+                    job.append(
+                        &line_job.text[byte_range],
+                        section.leading_space,
+                        section.format.clone(),
+                    );
+                } else {
+                    job.append(&line.content, section.leading_space, section.format.clone());
+                }
+            }
+
+            job.append("\n", 0.0, egui::TextFormat::default());
+        }
+
+        // Use the file path as part of the scroll-area ID so that switching
+        // to a different file resets the scroll position to the top naturally
+        // (fresh egui memory entry) without any explicit reset call.
+        egui::ScrollArea::vertical()
+            .id_source(egui::Id::new("unified_diff").with(file_path))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(job).wrap(false));
+            });
     }
 
     /// Show side-by-side diff view
     fn show_side_by_side_view(&mut self, ui: &mut egui::Ui, file_path: &std::path::Path) {
-        if let Some(ref side_by_side_diff) = self.side_by_side_diff {
-            if side_by_side_diff.is_binary {
-                ui.label("Binary files differ");
-                return;
-            }
-
-            if side_by_side_diff.is_empty() {
-                ui.label("No changes");
-                return;
-            }
-
-            // Show diff statistics
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "+{} -{}",
-                    side_by_side_diff.lines_added, side_by_side_diff.lines_removed
-                ));
-            });
-
-            // Create columns for side-by-side view
-            let mut left_scroll = self.side_by_side_left_scroll;
-            let mut right_scroll = self.side_by_side_right_scroll;
-            let scroll_synced = self.scroll_synced;
-
-            ui.columns(2, |columns| {
-                // Left column (old file)
-                Self::show_diff_column(
-                    &self.config,
-                    &self.syntax_service,
-                    &mut columns[0],
-                    "Left (Old)",
-                    &side_by_side_diff.left_lines,
-                    file_path,
-                    &mut left_scroll,
-                    "left_diff_scroll",
-                );
-
-                // Right column (new file)
-                Self::show_diff_column(
-                    &self.config,
-                    &self.syntax_service,
-                    &mut columns[1],
-                    "Right (New)",
-                    &side_by_side_diff.right_lines,
-                    file_path,
-                    &mut right_scroll,
-                    "right_diff_scroll",
-                );
-            });
-
-            // Sync scroll positions if enabled
-            if scroll_synced {
-                let avg_scroll = (left_scroll + right_scroll) / 2.0;
-                left_scroll = avg_scroll;
-                right_scroll = avg_scroll;
-            }
-
-            // Update scroll positions
-            self.side_by_side_left_scroll = left_scroll;
-            self.side_by_side_right_scroll = right_scroll;
-        } else {
+        let Some(ref side_by_side_diff) = self.side_by_side_diff else {
             ui.label("No diff loaded");
+            return;
+        };
+
+        if side_by_side_diff.is_binary {
+            ui.label("Binary files differ");
+            return;
         }
+
+        if side_by_side_diff.is_empty() {
+            ui.label("No changes");
+            return;
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "+{} -{}",
+                side_by_side_diff.lines_added, side_by_side_diff.lines_removed
+            ));
+        });
+
+        let scroll_synced = self.scroll_synced;
+        // Drive the right column to last frame's left scroll position.
+        // The 1-frame lag is imperceptible during normal scrolling.
+        let sync_y = self.sync_scroll_y;
+
+        let left_id = egui::Id::new("left_diff").with(file_path);
+        let right_id = egui::Id::new("right_diff").with(file_path);
+
+        let mut new_sync_y = sync_y;
+
+        ui.columns(2, |columns| {
+            let left_y = Self::show_diff_column(
+                &self.config,
+                &self.syntax_service,
+                &mut columns[0],
+                "Left (Old)",
+                &side_by_side_diff.left_lines,
+                file_path,
+                left_id,
+                None,
+            );
+            new_sync_y = left_y;
+
+            Self::show_diff_column(
+                &self.config,
+                &self.syntax_service,
+                &mut columns[1],
+                "Right (New)",
+                &side_by_side_diff.right_lines,
+                file_path,
+                right_id,
+                if scroll_synced { Some(sync_y) } else { None },
+            );
+        });
+
+        self.sync_scroll_y = new_sync_y;
     }
 
-    /// Show a single column in side-by-side view
+    /// Show a single column in side-by-side view.
+    /// Returns the column's current vertical scroll offset (used for sync).
+    /// When `forced_scroll_y` is Some the column is locked to that position
+    /// (used to keep the right column in sync with the left).
     #[allow(clippy::too_many_arguments)]
     fn show_diff_column(
         config: &DiffConfig,
@@ -398,109 +361,92 @@ impl EnhancedDiffViewer {
         title: &str,
         lines: &[crate::models::diff::DiffLine],
         file_path: &std::path::Path,
-        scroll_offset: &mut f32,
-        scroll_id: &str,
-    ) {
+        scroll_id: egui::Id,
+        forced_scroll_y: Option<f32>,
+    ) -> f32 {
         ui.heading(title);
 
-        egui::ScrollArea::vertical()
-            .id_source(scroll_id)
-            .scroll_offset(egui::Vec2::new(0.0, *scroll_offset))
-            .show(ui, |ui| {
-                let mut job = egui::text::LayoutJob::default();
+        let syntax = if config.syntax_highlighting {
+            syntax_service.detect_syntax(file_path)
+        } else {
+            None
+        };
 
-                // Build highlighted layout job
-                let syntax = if config.syntax_highlighting {
-                    syntax_service.detect_syntax(file_path)
-                } else {
-                    None
-                };
+        let wrap_lines = config.wrap_lines;
+        let show_line_numbers = config.show_line_numbers;
 
-                for line in lines {
-                    // Skip empty placeholder lines
-                    if line.content.is_empty() && !line.is_content() {
-                        job.append("\n", 0.0, egui::TextFormat::default());
-                        continue;
-                    }
+        let mut job = egui::text::LayoutJob::default();
+        if !wrap_lines {
+            job.wrap.max_width = f32::INFINITY;
+        }
 
-                    // Add line number if enabled
-                    if config.show_line_numbers {
-                        let line_num = line
-                            .left_line_num
-                            .or(line.right_line_num)
-                            .map(|n| n.to_string())
-                            .unwrap_or_else(|| "".to_string());
+        for line in lines {
+            if line.content.is_empty() && !line.is_content() {
+                job.append("\n", 0.0, egui::TextFormat::default());
+                continue;
+            }
 
-                        let line_num_text = format!("{:>4}: ", line_num);
-                        job.append(
-                            &line_num_text,
-                            0.0,
-                            egui::TextFormat::simple(
-                                egui::FontId::monospace(12.0),
-                                egui::Color32::GRAY,
-                            ),
-                        );
-                    }
-
-                    // Add the line content
-                    let line_job = if config.syntax_highlighting && line.should_highlight {
-                        syntax_service.highlight_diff_line(line, syntax)
-                    } else {
-                        // Basic highlighting without syntax
-                        let color = match line.change_type {
-                            crate::models::diff::LineChangeType::Added => egui::Color32::DARK_GREEN,
-                            crate::models::diff::LineChangeType::Removed => egui::Color32::DARK_RED,
-                            crate::models::diff::LineChangeType::HunkHeader => egui::Color32::BLUE,
-                            crate::models::diff::LineChangeType::FileHeader => egui::Color32::GRAY,
-                            _ => egui::Color32::WHITE,
-                        };
-
-                        let mut job = egui::text::LayoutJob::default();
-                        job.append(
-                            &line.content,
-                            0.0,
-                            egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
-                        );
-                        job
-                    };
-
-                    for section in line_job.sections {
-                        // Extract text from the line_job's text
-                        let byte_range = section.byte_range.clone();
-                        if byte_range.end <= line_job.text.len() {
-                            let text = &line_job.text[byte_range];
-                            job.append(text, section.leading_space, section.format.clone());
-                        } else {
-                            // Fallback: use the full line content
-                            job.append(
-                                &line.content,
-                                section.leading_space,
-                                section.format.clone(),
-                            );
-                        }
-                    }
-
-                    // Add newline
-                    job.append("\n", 0.0, egui::TextFormat::default());
-                }
-
-                // Display the job
-                ui.add(
-                    egui::TextEdit::multiline(&mut String::new())
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(20)
-                        .frame(false)
-                        .layouter(&mut |ui, _text, wrap_width| {
-                            let mut layout_job = job.clone();
-                            layout_job.wrap.max_width = wrap_width;
-                            if !config.wrap_lines {
-                                layout_job.wrap.max_width = f32::INFINITY;
-                            }
-                            ui.fonts(|f| f.layout_job(layout_job))
-                        }),
+            if show_line_numbers {
+                let n = line
+                    .left_line_num
+                    .or(line.right_line_num)
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                job.append(
+                    &format!("{n:>4}: "),
+                    0.0,
+                    egui::TextFormat::simple(egui::FontId::monospace(12.0), egui::Color32::GRAY),
                 );
-            });
+            }
+
+            let line_job = if config.syntax_highlighting && line.should_highlight {
+                syntax_service.highlight_diff_line(line, syntax)
+            } else {
+                let color = match line.change_type {
+                    crate::models::diff::LineChangeType::Added => egui::Color32::DARK_GREEN,
+                    crate::models::diff::LineChangeType::Removed => egui::Color32::DARK_RED,
+                    crate::models::diff::LineChangeType::HunkHeader => egui::Color32::BLUE,
+                    crate::models::diff::LineChangeType::FileHeader => egui::Color32::GRAY,
+                    _ => egui::Color32::WHITE,
+                };
+                let mut j = egui::text::LayoutJob::default();
+                j.append(
+                    &line.content,
+                    0.0,
+                    egui::TextFormat::simple(egui::FontId::monospace(12.0), color),
+                );
+                j
+            };
+
+            for section in &line_job.sections {
+                let byte_range = section.byte_range.clone();
+                if byte_range.end <= line_job.text.len() {
+                    job.append(
+                        &line_job.text[byte_range],
+                        section.leading_space,
+                        section.format.clone(),
+                    );
+                } else {
+                    job.append(&line.content, section.leading_space, section.format.clone());
+                }
+            }
+
+            job.append("\n", 0.0, egui::TextFormat::default());
+        }
+
+        let mut scroll_area = egui::ScrollArea::vertical()
+            .id_source(scroll_id)
+            .auto_shrink([false, false]);
+
+        if let Some(y) = forced_scroll_y {
+            scroll_area = scroll_area.scroll_offset(egui::Vec2::new(0.0, y));
+        }
+
+        let output = scroll_area.show(ui, |ui| {
+            ui.add(egui::Label::new(job).wrap(false));
+        });
+
+        output.state.offset.y
     }
 
     /// Refresh the diff for the currently selected file
