@@ -116,6 +116,31 @@ impl MainWindow {
         // Show error dialog
         self.error_dialog.show(ctx);
 
+        // Status bar — declared before menu bar and central panel so egui
+        // allocates it from the bottom of the window first.
+        egui::TopBottomPanel::bottom("status_bar")
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(30, 30, 35),
+                inner_margin: egui::Margin::symmetric(8.0, 4.0),
+                ..Default::default()
+            })
+            .show(ctx, |ui| {
+                let state = self.state.lock();
+                if let Some(msg) = &state.error_message {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 80, 80),
+                        format!("✗  {msg}"),
+                    );
+                } else if let Some(msg) = &state.info_message {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(150, 210, 150),
+                        format!("✓  {msg}"),
+                    );
+                } else {
+                    ui.label(" ");
+                }
+            });
+
         // Show menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             let mut state = self.state.lock();
@@ -345,10 +370,20 @@ impl MainWindow {
             ..Default::default()
         };
 
+        // Constrain side-panel widths so the central panel always has at least
+        // MIN_CENTER_WIDTH pixels.  Without this the right panel can grow to
+        // overlap the central panel (which renders last and therefore on top).
+        const LEFT_MIN: f32 = 150.0;
+        const CENTER_MIN: f32 = 250.0;
+        const RIGHT_MIN: f32 = 200.0;
+        let screen_w = ctx.available_rect().width();
+        let right_max = (screen_w - LEFT_MIN - CENTER_MIN).max(RIGHT_MIN);
+
         // Left panel - Branches
         egui::SidePanel::left("left_panel")
             .resizable(true)
             .default_width(250.0)
+            .min_width(LEFT_MIN)
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(30, 30, 35),
                 ..panel_frame
@@ -362,6 +397,7 @@ impl MainWindow {
         egui::SidePanel::right("right_panel")
             .resizable(true)
             .default_width(400.0)
+            .width_range(RIGHT_MIN..=right_max)
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(30, 30, 35),
                 ..panel_frame
@@ -383,15 +419,14 @@ impl MainWindow {
                         self.diff_viewer.show(ui, &mut state);
                     });
 
-                egui::TopBottomPanel::bottom("right_bottom")
-                    .frame(egui::Frame {
-                        fill: egui::Color32::from_rgb(30, 30, 35),
-                        ..panel_frame
-                    })
-                    .show_inside(ui, |ui| {
-                        let mut state = self.state.lock();
-                        self.commit_panel.show(ui, &mut state);
-                    });
+                // Commit panel fills whatever space remains below the diff viewer.
+                // Using the leftover `ui` directly (no second TopBottomPanel) means
+                // there is only one stored height for this split, so the two halves
+                // always sum to 100% of the right panel height.
+                {
+                    let mut state = self.state.lock();
+                    self.commit_panel.show(ui, &mut state);
+                }
             });
 
         // Central panel - Unstaged and Staged files (declared last so it fills remaining space)
@@ -417,15 +452,11 @@ impl MainWindow {
                         self.unstaged_list.show(ui, &mut state);
                     });
 
-                egui::TopBottomPanel::bottom("middle_bottom")
-                    .frame(egui::Frame {
-                        fill: egui::Color32::from_rgb(42, 42, 47),
-                        ..panel_frame
-                    })
-                    .show_inside(ui, |ui| {
-                        let mut state = self.state.lock();
-                        self.staged_list.show(ui, &mut state);
-                    });
+                // Staged list fills whatever space remains below the unstaged list.
+                {
+                    let mut state = self.state.lock();
+                    self.staged_list.show(ui, &mut state);
+                }
             });
     }
 }

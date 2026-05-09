@@ -78,7 +78,7 @@ impl EnhancedDiffViewer {
 
     /// Show the enhanced diff viewer component
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        ui.heading("Enhanced Diff View");
+        ui.heading("Diff");
 
         // Check if we need to refresh the diff
         let current_selected_file = state.ui_state.selected_file_path().cloned();

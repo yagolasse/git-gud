@@ -19,3 +19,4 @@ pub use error_dialog::ErrorDialog;
 pub use file_dialog::FileDialog;
 pub use file_list::FileList;
 pub use recent_repos::RecentRepos;
+pub use virtual_scroll::VirtualScroll;
