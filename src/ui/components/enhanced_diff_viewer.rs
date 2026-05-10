@@ -5,13 +5,20 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-// Spec color tokens (dark-mode)
-const BG_SECONDARY: egui::Color32 = egui::Color32::from_rgb(30, 30, 35);
-const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(150, 150, 155);
-const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(95, 95, 100);
-const TEXT_CONTEXT: egui::Color32 = egui::Color32::from_rgb(180, 180, 185);
-const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(9, 71, 113);
-const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(100, 170, 240);
+// Chrome (header + action bar) — light
+const BG_PRIMARY: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
+const BG_SECONDARY: egui::Color32 = egui::Color32::from_rgb(245, 245, 244);
+const BG_TERTIARY: egui::Color32 = egui::Color32::from_rgb(235, 235, 234);
+const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(26, 26, 24);
+const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(95, 94, 90);
+const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(136, 135, 128);
+const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 38);
+
+// Diff content area — dark
+const DIFF_CONTENT_BG: egui::Color32 = egui::Color32::from_rgb(15, 16, 17); // #0f1011
+const DIFF_CONTEXT_TEXT: egui::Color32 = egui::Color32::from_rgb(168, 168, 156); // #a8a89c
+const DIFF_HUNK_BG: egui::Color32 = egui::Color32::from_rgb(26, 28, 30); // #1a1c1e
+const DIFF_HUNK_TEXT: egui::Color32 = egui::Color32::from_rgb(124, 129, 137); // #7c8189
 
 const DIFF_ADD_BG: egui::Color32 = egui::Color32::from_rgb(26, 58, 26);
 const DIFF_ADD_TEXT: egui::Color32 = egui::Color32::from_rgb(115, 201, 145);
@@ -19,6 +26,10 @@ const DIFF_ADD_GUTTER: egui::Color32 = egui::Color32::from_rgb(30, 63, 30);
 const DIFF_REM_BG: egui::Color32 = egui::Color32::from_rgb(58, 26, 26);
 const DIFF_REM_TEXT: egui::Color32 = egui::Color32::from_rgb(241, 76, 76);
 const DIFF_REM_GUTTER: egui::Color32 = egui::Color32::from_rgb(63, 30, 30);
+
+const STATUS_MODIFIED: egui::Color32 = egui::Color32::from_rgb(226, 167, 75);
+const STATUS_ADDED: egui::Color32 = egui::Color32::from_rgb(115, 201, 145);
+const STATUS_DELETED: egui::Color32 = egui::Color32::from_rgb(241, 76, 76);
 
 // Gutter layout constants
 const GUTTER_OLD: f32 = 32.0; // width reserved for old line number
@@ -87,8 +98,40 @@ impl EnhancedDiffViewer {
 
         let selected_file = state.ui_state.selected_file_path().unwrap().to_path_buf();
 
-        // Header bar — file path
-        Self::show_header_bar(ui, &selected_file);
+        // Compute status badge info and +/- counts
+        let status_badge = state.repository_state.as_ref().and_then(|r| {
+            r.staged_files
+                .iter()
+                .chain(r.unstaged_files.iter())
+                .find(|f| f.path == selected_file)
+                .map(|f| match f.status {
+                    crate::models::FileStatus::Modified => ("M", STATUS_MODIFIED),
+                    crate::models::FileStatus::Added => ("A", STATUS_ADDED),
+                    crate::models::FileStatus::Deleted => ("D", STATUS_DELETED),
+                    crate::models::FileStatus::Untracked => ("U", STATUS_ADDED),
+                    crate::models::FileStatus::Renamed => ("R", STATUS_MODIFIED),
+                    _ => ("·", TEXT_TERTIARY),
+                })
+        });
+        let (added_lines, removed_lines) = match &self.unified_diff {
+            Some(ud) => {
+                let a = ud
+                    .lines
+                    .iter()
+                    .filter(|l| l.change_type == crate::models::diff::LineChangeType::Added)
+                    .count();
+                let r = ud
+                    .lines
+                    .iter()
+                    .filter(|l| l.change_type == crate::models::diff::LineChangeType::Removed)
+                    .count();
+                (a, r)
+            }
+            None => (0, 0),
+        };
+
+        // Header bar — file path + status badge + +/- counts
+        Self::show_header_bar(ui, &selected_file, status_badge, added_lines, removed_lines);
 
         // Action bar — Unified / Split
         self.show_action_bar(ui);
@@ -104,95 +147,197 @@ impl EnhancedDiffViewer {
         }
     }
 
-    fn show_header_bar(ui: &mut egui::Ui, file_path: &std::path::Path) {
+    fn show_header_bar(
+        ui: &mut egui::Ui,
+        file_path: &std::path::Path,
+        status_badge: Option<(&str, egui::Color32)>,
+        added: usize,
+        removed: usize,
+    ) {
         let available_width = ui.available_width();
         let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(available_width, 26.0), egui::Sense::hover());
+            ui.allocate_exact_size(egui::vec2(available_width, 28.0), egui::Sense::hover());
 
-        if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, BG_SECONDARY);
-            ui.painter().text(
-                egui::pos2(rect.min.x + 8.0, rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                file_path.display().to_string(),
-                egui::FontId::monospace(11.0),
-                TEXT_SECONDARY,
-            );
+        if !ui.is_rect_visible(rect) {
+            return;
         }
+
+        ui.painter().rect_filled(rect, 0.0, BG_SECONDARY);
+        ui.painter().hline(
+            rect.min.x..=rect.max.x,
+            rect.max.y - 0.5,
+            egui::Stroke::new(0.5, BORDER),
+        );
+
+        let cy = rect.center().y;
+        let mut x = rect.min.x + 10.0;
+
+        // Status badge
+        if let Some((letter, color)) = status_badge {
+            let sq = egui::Rect::from_center_size(egui::pos2(x + 7.0, cy), egui::vec2(14.0, 14.0));
+            ui.painter().rect_filled(sq, 3.0, color);
+            ui.painter().text(
+                sq.center(),
+                egui::Align2::CENTER_CENTER,
+                letter,
+                egui::FontId::monospace(9.0),
+                egui::Color32::WHITE,
+            );
+            x += 20.0;
+        }
+
+        ui.painter().text(
+            egui::pos2(x, cy),
+            egui::Align2::LEFT_CENTER,
+            file_path.display().to_string(),
+            egui::FontId::monospace(11.0),
+            TEXT_SECONDARY,
+        );
+
+        // +N / −N counts (right-aligned)
+        let mono = egui::FontId::monospace(11.0);
+        let rem_text = format!("\u{2212}{}", removed);
+        let rem_galley =
+            ui.fonts(|f| f.layout_no_wrap(rem_text.clone(), mono.clone(), DIFF_REM_TEXT));
+        let rx = rect.max.x - 10.0 - rem_galley.size().x;
+        ui.painter()
+            .text(egui::pos2(rx, cy), egui::Align2::LEFT_CENTER, rem_text, mono.clone(), DIFF_REM_TEXT);
+
+        let add_text = format!("+{}", added);
+        let add_galley =
+            ui.fonts(|f| f.layout_no_wrap(add_text.clone(), mono.clone(), DIFF_ADD_TEXT));
+        let ax = rx - add_galley.size().x - 8.0;
+        ui.painter()
+            .text(egui::pos2(ax, cy), egui::Align2::LEFT_CENTER, add_text, mono, DIFF_ADD_TEXT);
     }
 
     fn show_action_bar(&mut self, ui: &mut egui::Ui) {
         let available_width = ui.available_width();
         let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(available_width, 26.0), egui::Sense::hover());
+            ui.allocate_exact_size(egui::vec2(available_width, 32.0), egui::Sense::hover());
 
-        if ui.is_rect_visible(rect) {
-            ui.painter()
-                .rect_filled(rect, 0.0, egui::Color32::from_rgb(35, 35, 42));
-
-            let font = egui::FontId::proportional(11.0);
-            let btn_h = 20.0;
-            let btn_y = rect.min.y + (26.0 - btn_h) / 2.0;
-            let mut x = rect.min.x + 8.0;
-
-            for (label, mode) in [
-                ("Unified", DiffDisplayMode::Unified),
-                ("Split", DiffDisplayMode::SideBySide),
-            ] {
-                let galley =
-                    ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), TEXT_SECONDARY));
-                let btn_w = galley.size().x + 12.0;
-                let btn_rect =
-                    egui::Rect::from_min_size(egui::pos2(x, btn_y), egui::vec2(btn_w, btn_h));
-                let btn_id = ui.id().with("action_bar").with(label);
-                let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
-
-                let active = self.config.mode == mode;
-                let bg = if active {
-                    ACCENT_SEL_BG
-                } else if btn.hovered() {
-                    egui::Color32::from_rgb(50, 50, 60)
-                } else {
-                    egui::Color32::TRANSPARENT
-                };
-                let text_color = if active { ACCENT_TEXT } else { TEXT_SECONDARY };
-
-                if ui.is_rect_visible(btn_rect) {
-                    ui.painter().rect_filled(btn_rect, 4.0, bg);
-                    ui.painter().text(
-                        btn_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        label,
-                        font.clone(),
-                        text_color,
-                    );
-                }
-
-                if btn.clicked() {
-                    self.config.mode = mode;
-                }
-
-                x += btn_w + 4.0;
-            }
+        if !ui.is_rect_visible(rect) {
+            return;
         }
+
+        ui.painter().rect_filled(rect, 0.0, BG_PRIMARY);
+        ui.painter().hline(
+            rect.min.x..=rect.max.x,
+            rect.max.y - 0.5,
+            egui::Stroke::new(0.5, BORDER),
+        );
+
+        let cy = rect.center().y;
+        let btn_h = 24.0;
+        let font = egui::FontId::proportional(11.0);
+
+        // Toggle group: border around both buttons together
+        let labels = [
+            ("Unified", DiffDisplayMode::Unified),
+            ("Split", DiffDisplayMode::SideBySide),
+        ];
+        let widths: Vec<f32> = labels
+            .iter()
+            .map(|(lbl, _)| {
+                ui.fonts(|f| {
+                    f.layout_no_wrap(lbl.to_string(), font.clone(), TEXT_SECONDARY)
+                        .size()
+                        .x
+                }) + 20.0
+            })
+            .collect();
+        let total_w: f32 = widths.iter().sum();
+        let group_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x + 10.0, cy - btn_h / 2.0),
+            egui::vec2(total_w, btn_h),
+        );
+
+        // Outer border
+        ui.painter()
+            .rect_stroke(group_rect, 6.0, egui::Stroke::new(0.5, BORDER));
+
+        let mut bx = group_rect.min.x;
+        for (i, (label, mode)) in labels.iter().enumerate() {
+            let btn_rect = egui::Rect::from_min_size(
+                egui::pos2(bx, group_rect.min.y),
+                egui::vec2(widths[i], btn_h),
+            );
+            let btn_id = ui.id().with("action_bar").with(i);
+            let btn_resp = ui.interact(btn_rect, btn_id, egui::Sense::click());
+
+            let active = self.config.mode == *mode;
+            if active {
+                let rounding = if i == 0 {
+                    egui::Rounding { nw: 6.0, sw: 6.0, ne: 0.0, se: 0.0 }
+                } else {
+                    egui::Rounding { nw: 0.0, sw: 0.0, ne: 6.0, se: 6.0 }
+                };
+                ui.painter().rect_filled(btn_rect, rounding, BG_TERTIARY);
+            }
+
+            ui.painter().text(
+                btn_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                font.clone(),
+                if active { TEXT_PRIMARY } else { TEXT_SECONDARY },
+            );
+
+            // Divider between buttons
+            if i < labels.len() - 1 {
+                ui.painter().vline(
+                    btn_rect.max.x,
+                    (group_rect.min.y)..=(group_rect.max.y),
+                    egui::Stroke::new(0.5, BORDER),
+                );
+            }
+
+            if btn_resp.clicked() {
+                self.config.mode = *mode;
+            }
+
+            bx += widths[i];
+        }
+
+        // Settings icon — far right
+        let gear_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.max.x - 10.0 - 13.0, cy),
+            egui::vec2(26.0, btn_h),
+        );
+        let gear_id = ui.id().with("diff_gear");
+        let gear_resp = ui.interact(gear_rect, gear_id, egui::Sense::click());
+        if gear_resp.hovered() {
+            ui.painter().rect_filled(gear_rect, 4.0, BG_SECONDARY);
+        }
+        ui.painter().text(
+            gear_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "\u{2699}",
+            egui::FontId::proportional(13.0),
+            if gear_resp.hovered() { TEXT_PRIMARY } else { TEXT_SECONDARY },
+        );
     }
 
     fn show_unified_view(&mut self, ui: &mut egui::Ui, file_path: &std::path::Path) {
+        // Fill the entire content rect with the dark diff background
+        let content_rect = ui.available_rect_before_wrap();
+        ui.painter().rect_filled(content_rect, 0.0, DIFF_CONTENT_BG);
+
         let lines = match &self.unified_diff {
             Some(ud) if ud.is_binary => {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("Binary file").color(TEXT_TERTIARY));
+                ui.label(egui::RichText::new("Binary file").color(DIFF_CONTEXT_TEXT));
                 return;
             }
             Some(ud) if ud.lines.is_empty() => {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("No changes").color(TEXT_TERTIARY));
+                ui.label(egui::RichText::new("No changes").color(DIFF_CONTEXT_TEXT));
                 return;
             }
             Some(ud) => &ud.lines[..],
             None => {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("No diff loaded").color(TEXT_TERTIARY));
+                ui.label(egui::RichText::new("No diff loaded").color(DIFF_CONTEXT_TEXT));
                 return;
             }
         };
@@ -286,18 +431,21 @@ impl EnhancedDiffViewer {
     }
 
     fn show_side_by_side_view(&mut self, ui: &mut egui::Ui, file_path: &std::path::Path) {
+        let content_rect = ui.available_rect_before_wrap();
+        ui.painter().rect_filled(content_rect, 0.0, DIFF_CONTENT_BG);
+
         let Some(ref side_by_side_diff) = self.side_by_side_diff else {
-            ui.label(egui::RichText::new("No diff loaded").color(TEXT_TERTIARY));
+            ui.label(egui::RichText::new("No diff loaded").color(DIFF_CONTEXT_TEXT));
             return;
         };
 
         if side_by_side_diff.is_binary {
-            ui.label(egui::RichText::new("Binary file").color(TEXT_TERTIARY));
+            ui.label(egui::RichText::new("Binary file").color(DIFF_CONTEXT_TEXT));
             return;
         }
 
         if side_by_side_diff.is_empty() {
-            ui.label(egui::RichText::new("No changes").color(TEXT_TERTIARY));
+            ui.label(egui::RichText::new("No changes").color(DIFF_CONTEXT_TEXT));
             return;
         }
 
@@ -404,8 +552,8 @@ fn row_colors(
         LineChangeType::Added => (DIFF_ADD_BG, DIFF_ADD_GUTTER, DIFF_ADD_TEXT),
         LineChangeType::Removed => (DIFF_REM_BG, DIFF_REM_GUTTER, DIFF_REM_TEXT),
         LineChangeType::HunkHeader | LineChangeType::FileHeader => {
-            (BG_SECONDARY, BG_SECONDARY, TEXT_TERTIARY)
+            (DIFF_HUNK_BG, DIFF_HUNK_BG, DIFF_HUNK_TEXT)
         }
-        _ => (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT, TEXT_CONTEXT),
+        _ => (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT, DIFF_CONTEXT_TEXT),
     }
 }

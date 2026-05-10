@@ -51,6 +51,9 @@ pub struct MainWindow {
 
     /// Active tab (Changes or History)
     active_tab: ActiveTab,
+
+    /// Toolbar component
+    toolbar: crate::ui::Toolbar,
 }
 
 impl MainWindow {
@@ -64,8 +67,8 @@ impl MainWindow {
         cc: &eframe::CreationContext<'_>,
         initial_path: Option<&std::path::Path>,
     ) -> Self {
-        // Set dark mode
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        // Set light mode
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
 
         let mut window = Self {
             state: Arc::new(Mutex::new(AppState::new())),
@@ -77,9 +80,10 @@ impl MainWindow {
             error_dialog: ErrorDialog::new(),
             recent_repos: RecentRepos::load_default(),
             file_watcher: crate::services::file_watcher_service::SharedFileWatcher::new(),
-            show_open_dialog: true, // Show dialog on startup
+            show_open_dialog: true,
             open_repo_path: ".".to_string(),
             active_tab: ActiveTab::Changes,
+            toolbar: crate::ui::Toolbar::new(),
         };
 
         // Try to load initial repository if provided
@@ -134,26 +138,20 @@ impl MainWindow {
             }
         }
 
-        // Status bar — declared before menu bar and central panel so egui
-        // allocates it from the bottom of the window first.
+        // Status bar — declared first so egui reserves it from the bottom.
         egui::TopBottomPanel::bottom("status_bar")
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(30, 30, 35),
+                fill: egui::Color32::from_rgb(245, 245, 244),
                 inner_margin: egui::Margin::symmetric(8.0, 4.0),
+                stroke: egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38)),
                 ..Default::default()
             })
             .show(ctx, |ui| {
                 let state = self.state.lock();
                 if let Some(msg) = &state.error_message {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 80, 80),
-                        format!("✗  {msg}"),
-                    );
+                    ui.colored_label(egui::Color32::from_rgb(200, 50, 50), format!("\u{2717}  {msg}"));
                 } else if let Some(msg) = &state.info_message {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(150, 210, 150),
-                        format!("✓  {msg}"),
-                    );
+                    ui.colored_label(egui::Color32::from_rgb(60, 130, 60), format!("\u{2713}  {msg}"));
                 } else {
                     ui.label(" ");
                 }
@@ -261,6 +259,21 @@ impl MainWindow {
                 }
             });
         });
+
+        // Toolbar — below menu bar, only when a repo is loaded
+        if self.state.lock().has_repository() {
+            egui::TopBottomPanel::top("toolbar")
+                .frame(egui::Frame {
+                    fill: egui::Color32::WHITE,
+                    inner_margin: egui::Margin::ZERO,
+                    outer_margin: egui::Margin::ZERO,
+                    ..Default::default()
+                })
+                .show(ctx, |ui| {
+                    let mut state = self.state.lock();
+                    self.toolbar.show(ui, &mut state);
+                });
+        }
 
         // Show main UI if repository loaded, otherwise show empty state
         let has_repo = self.state.lock().has_repository();
@@ -401,7 +414,8 @@ impl MainWindow {
             .default_width(SIDEBAR_W)
             .width_range(SIDEBAR_W..=350.0)
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(30, 30, 35),
+                fill: egui::Color32::from_rgb(245, 245, 244),
+                stroke: egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38)),
                 ..panel_frame
             })
             .show(ctx, |ui| {
@@ -412,7 +426,7 @@ impl MainWindow {
         // Everything else: tab bar + tab content
         egui::CentralPanel::default()
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(42, 42, 47),
+                fill: egui::Color32::from_rgb(245, 245, 244),
                 ..panel_frame
             })
             .show(ctx, |ui| {
@@ -427,10 +441,12 @@ impl MainWindow {
     /// Painter-based tab bar spanning the full center+right width
     fn show_tab_bar(&mut self, ui: &mut egui::Ui) {
         const TAB_H: f32 = 32.0;
-        const TAB_BG: egui::Color32 = egui::Color32::from_rgb(25, 25, 30);
-        const TEXT_INACTIVE: egui::Color32 = egui::Color32::from_rgb(150, 150, 155);
-        const TEXT_HOVER: egui::Color32 = egui::Color32::from_rgb(210, 210, 215);
-        const BORDER_COLOR: egui::Color32 = egui::Color32::from_rgb(50, 50, 58);
+        const TAB_BG: egui::Color32 = egui::Color32::from_rgb(245, 245, 244);
+        const BG_PRIMARY: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
+        const BG_TERTIARY: egui::Color32 = egui::Color32::from_rgb(235, 235, 234);
+        const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(26, 26, 24);
+        const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(95, 94, 90);
+        const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 38);
 
         let available_width = ui.available_width();
         let (rect, _) =
@@ -438,41 +454,47 @@ impl MainWindow {
 
         if ui.is_rect_visible(rect) {
             ui.painter().rect_filled(rect, 0.0, TAB_BG);
-            // Bottom separator
             ui.painter().hline(
                 rect.min.x..=rect.max.x,
-                rect.max.y - 1.0,
-                egui::Stroke::new(1.0, BORDER_COLOR),
+                rect.max.y - 0.5,
+                egui::Stroke::new(0.5, BORDER),
             );
         }
 
         let font = egui::FontId::proportional(12.0);
-        let mut x = rect.min.x + 8.0;
+        let mut x = rect.min.x;
 
         for (label, tab) in [
             ("Changes", ActiveTab::Changes),
             ("History", ActiveTab::History),
         ] {
             let galley =
-                ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), TEXT_INACTIVE));
+                ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), TEXT_SECONDARY));
             let tab_w = galley.size().x + 28.0;
-            let tab_rect = egui::Rect::from_min_size(
-                egui::pos2(x, rect.min.y),
-                egui::vec2(tab_w, TAB_H),
-            );
+            let tab_rect =
+                egui::Rect::from_min_size(egui::pos2(x, rect.min.y), egui::vec2(tab_w, TAB_H));
             let tab_id = ui.id().with("tab_bar").with(label);
             let tab_resp = ui.interact(tab_rect, tab_id, egui::Sense::click());
 
             let active = self.active_tab == tab;
-            let text_color = if active {
-                egui::Color32::WHITE
-            } else if tab_resp.hovered() {
-                TEXT_HOVER
-            } else {
-                TEXT_INACTIVE
-            };
 
             if ui.is_rect_visible(tab_rect) {
+                let bg = if active {
+                    BG_PRIMARY
+                } else if tab_resp.hovered() {
+                    BG_TERTIARY
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
+                if bg != egui::Color32::TRANSPARENT {
+                    ui.painter().rect_filled(tab_rect, 0.0, bg);
+                }
+
+                let text_color = if active || tab_resp.hovered() {
+                    TEXT_PRIMARY
+                } else {
+                    TEXT_SECONDARY
+                };
                 ui.painter().text(
                     tab_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -482,14 +504,13 @@ impl MainWindow {
                 );
 
                 if active {
-                    // 2px bottom border
                     ui.painter().rect_filled(
                         egui::Rect::from_min_size(
-                            egui::pos2(tab_rect.min.x + 4.0, tab_rect.max.y - 2.0),
-                            egui::vec2(tab_w - 8.0, 2.0),
+                            egui::pos2(tab_rect.min.x, tab_rect.max.y - 2.0),
+                            egui::vec2(tab_w, 2.0),
                         ),
                         0.0,
-                        egui::Color32::WHITE,
+                        TEXT_PRIMARY,
                     );
                 }
             }
@@ -502,22 +523,25 @@ impl MainWindow {
         }
     }
 
-    /// Changes tab: resizable file list panel on the left, diff viewer on the right
+    /// Changes tab: file list panel on left, diff viewer on right
     fn show_changes_tab(&mut self, ui: &mut egui::Ui, panel_frame: egui::Frame) {
+        let border = egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38));
+
         // File list + commit panel on the left
         egui::SidePanel::left("file_list_panel")
             .resizable(true)
             .default_width(220.0)
             .width_range(140.0..=400.0)
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(42, 42, 47),
+                fill: egui::Color32::WHITE,
+                stroke: border,
                 ..panel_frame
             })
             .show_inside(ui, |ui| {
                 egui::TopBottomPanel::bottom("commit_panel_bottom")
                     .resizable(false)
                     .frame(egui::Frame {
-                        fill: egui::Color32::from_rgb(42, 42, 47),
+                        fill: egui::Color32::WHITE,
                         inner_margin: egui::Margin::symmetric(8.0, 6.0),
                         ..Default::default()
                     })
@@ -532,7 +556,7 @@ impl MainWindow {
         // Diff viewer fills the rest
         egui::CentralPanel::default()
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(30, 30, 35),
+                fill: egui::Color32::WHITE,
                 ..panel_frame
             })
             .show_inside(ui, |ui| {
@@ -551,7 +575,7 @@ impl MainWindow {
                 egui::Align2::CENTER_CENTER,
                 "Commit history coming soon",
                 egui::FontId::proportional(13.0),
-                egui::Color32::from_rgb(95, 95, 100),
+                egui::Color32::from_rgb(136, 135, 128),
             );
         }
     }

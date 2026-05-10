@@ -11,6 +11,7 @@ mod error_dialog;
 mod file_dialog;
 mod file_list;
 mod recent_repos;
+mod toolbar;
 mod virtual_scroll;
 
 pub use branch_list::BranchList;
@@ -21,4 +22,5 @@ pub use error_dialog::ErrorDialog;
 pub use file_dialog::FileDialog;
 pub use file_list::FileList;
 pub use recent_repos::RecentRepos;
+pub use toolbar::Toolbar;
 pub use virtual_scroll::VirtualScroll;

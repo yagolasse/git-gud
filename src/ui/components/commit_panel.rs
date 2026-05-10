@@ -1,11 +1,12 @@
 use crate::state::AppState;
 use eframe::egui;
 
-const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(95, 95, 100);
+const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(136, 135, 128);
 const STATUS_MODIFIED: egui::Color32 = egui::Color32::from_rgb(226, 167, 75);
 const STATUS_DELETED: egui::Color32 = egui::Color32::from_rgb(241, 76, 76);
-const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(9, 71, 113);
-const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(100, 170, 240);
+const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(230, 241, 251);
+const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(24, 95, 165);
+const ACCENT_BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(7, 29, 50, 77);
 
 pub struct CommitPanel {
     amend: bool,
@@ -46,7 +47,7 @@ impl CommitPanel {
         let n = state.ui_state.commit_summary.len();
         if n > 0 {
             let (hint_text, hint_color) = if n <= 50 {
-                (format!("{}/50", n), TEXT_DIM)
+                (format!("{}/50", n), TEXT_TERTIARY)
             } else if n <= 72 {
                 (format!("{}/72 — getting long", n), STATUS_MODIFIED)
             } else {
@@ -82,14 +83,15 @@ impl CommitPanel {
                     "Commit".to_string()
                 };
 
-                let btn = egui::Button::new(
-                    egui::RichText::new(&btn_label).color(ACCENT_TEXT),
-                )
-                .fill(if commit_enabled {
-                    ACCENT_SEL_BG
-                } else {
-                    egui::Color32::from_rgb(30, 30, 35)
-                });
+                let btn = egui::Button::new(egui::RichText::new(&btn_label).color(
+                    if commit_enabled {
+                        ACCENT_TEXT
+                    } else {
+                        egui::Color32::from_rgb(150, 150, 155)
+                    },
+                ))
+                .fill(ACCENT_SEL_BG)
+                .stroke(egui::Stroke::new(0.5, ACCENT_BORDER));
 
                 if ui.add_enabled(commit_enabled, btn).clicked() {
                     self.create_commit(state);

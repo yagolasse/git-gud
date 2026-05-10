@@ -9,6 +9,6 @@ pub mod main_window;
 /// Re-exports for convenience
 pub use components::{
     BranchList, CommandLog, CommitPanel, EnhancedDiffViewer, ErrorDialog, FileDialog, FileList,
-    RecentRepos,
+    RecentRepos, Toolbar,
 };
 pub use main_window::MainWindow;

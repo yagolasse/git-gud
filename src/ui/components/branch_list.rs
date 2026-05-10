@@ -2,12 +2,13 @@ use crate::state::AppState;
 use eframe::egui;
 use std::cell::Cell;
 
-// Dark-mode color palette (from design spec, adapted for dark theme)
-const BG_SECTION: egui::Color32 = egui::Color32::from_rgb(35, 35, 40);
-const BG_HOVER: egui::Color32 = egui::Color32::from_rgb(48, 48, 55);
-const TEXT_SECTION: egui::Color32 = egui::Color32::from_rgb(150, 150, 155);
-const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(95, 95, 100);
-const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(9, 71, 113);
+const BG_SECONDARY: egui::Color32 = egui::Color32::from_rgb(245, 245, 244);
+const BG_TERTIARY: egui::Color32 = egui::Color32::from_rgb(235, 235, 234);
+const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(95, 94, 90);
+const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(136, 135, 128);
+const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 38);
+const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(230, 241, 251);
+const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(24, 95, 165);
 const ACCENT_SUCCESS: egui::Color32 = egui::Color32::from_rgb(99, 153, 34);
 
 pub struct BranchList {
@@ -50,7 +51,7 @@ impl BranchList {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("No repository loaded").color(TEXT_DIM).small());
+                ui.label(egui::RichText::new("No repository loaded").color(TEXT_TERTIARY).small());
             });
             return;
         }
@@ -162,25 +163,30 @@ impl BranchList {
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
-            let bg = if response.hovered() { BG_HOVER } else { BG_SECTION };
+            let bg = if response.hovered() { BG_TERTIARY } else { BG_SECONDARY };
             ui.painter().rect_filled(rect, 0.0, bg);
+            ui.painter().hline(
+                rect.min.x..=rect.max.x,
+                rect.max.y - 0.5,
+                egui::Stroke::new(0.5, BORDER),
+            );
 
-            let font = egui::FontId::proportional(11.0);
+            let font = egui::FontId::proportional(10.0);
             let y = rect.center().y;
 
             ui.painter().text(
                 egui::pos2(rect.min.x + 6.0, y),
                 egui::Align2::LEFT_CENTER,
-                if *open { "▾" } else { "▸" },
+                if *open { "\u{25BE}" } else { "\u{25B8}" },
                 font.clone(),
-                TEXT_DIM,
+                TEXT_TERTIARY,
             );
             ui.painter().text(
                 egui::pos2(rect.min.x + 18.0, y),
                 egui::Align2::LEFT_CENTER,
                 title,
-                font,
-                TEXT_SECTION,
+                egui::FontId::proportional(10.0),
+                TEXT_SECONDARY,
             );
         }
 
@@ -188,27 +194,25 @@ impl BranchList {
             *open = !*open;
         }
 
-        // "+" button: uses ui.interact() on a sub-rect so no extra space is allocated.
         let mut add_clicked = false;
         if show_add && response.hovered() {
             let btn_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.max.x - 22.0, rect.min.y + 2.0),
-                egui::vec2(18.0, 20.0),
+                egui::pos2(rect.max.x - 22.0, rect.min.y + 3.0),
+                egui::vec2(18.0, 18.0),
             );
             let btn_id = ui.id().with(title).with("add");
             let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
 
             if ui.is_rect_visible(btn_rect) {
                 if btn.hovered() {
-                    ui.painter()
-                        .rect_filled(btn_rect, 3.0, egui::Color32::from_rgb(60, 60, 70));
+                    ui.painter().rect_filled(btn_rect, 3.0, BG_TERTIARY);
                 }
                 ui.painter().text(
                     btn_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "+",
-                    egui::FontId::proportional(14.0),
-                    TEXT_SECTION,
+                    egui::FontId::proportional(13.0),
+                    TEXT_SECONDARY,
                 );
             }
 
@@ -235,13 +239,13 @@ impl BranchList {
             let bg = if is_selected {
                 ACCENT_SEL_BG
             } else if response.hovered() {
-                BG_HOVER
+                BG_TERTIARY
             } else {
                 egui::Color32::TRANSPARENT
             };
             ui.painter().rect_filled(rect, 0.0, bg);
 
-            let font = egui::FontId::proportional(12.0);
+            let font = egui::FontId::proportional(11.0);
             let y = rect.center().y;
             let mut x = rect.min.x + indent;
 
@@ -249,29 +253,22 @@ impl BranchList {
                 let check_rect = ui.painter().text(
                     egui::pos2(x, y),
                     egui::Align2::LEFT_CENTER,
-                    "✓",
+                    "\u{2713}",
                     font.clone(),
                     ACCENT_SUCCESS,
                 );
                 x = check_rect.max.x + 4.0;
             }
 
-            let text_color = if is_selected {
-                egui::Color32::WHITE
-            } else {
-                egui::Color32::from_rgb(212, 212, 212)
-            };
+            let text_color = if is_selected { ACCENT_TEXT } else { TEXT_SECONDARY };
 
-            let name = if branch.is_current {
-                // Bold via font weight isn't directly available in egui's
-                // proportional fonts here, so we just paint with the same font.
-                branch.name.clone()
-            } else {
-                branch.name.clone()
-            };
-
-            ui.painter()
-                .text(egui::pos2(x, y), egui::Align2::LEFT_CENTER, name, font, text_color);
+            ui.painter().text(
+                egui::pos2(x, y),
+                egui::Align2::LEFT_CENTER,
+                &branch.name,
+                font,
+                text_color,
+            );
         }
 
         let checkout_from_menu = Cell::new(false);
@@ -294,7 +291,7 @@ impl BranchList {
     fn show_empty_hint(ui: &mut egui::Ui, text: &str, indent: f32) {
         ui.horizontal(|ui| {
             ui.add_space(indent);
-            ui.label(egui::RichText::new(text).color(TEXT_DIM).small());
+            ui.label(egui::RichText::new(text).color(TEXT_TERTIARY).small());
         });
     }
 }
