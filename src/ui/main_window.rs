@@ -369,8 +369,8 @@ impl MainWindow {
         // Sidebar is fixed at 186px per design spec (non-resizable).
         // The right panel is capped so the central panel always gets ≥ CENTER_MIN px.
         const SIDEBAR_W: f32 = 186.0;
-        const CENTER_MIN: f32 = 250.0;
-        const RIGHT_MIN: f32 = 200.0;
+        const CENTER_MIN: f32 = 200.0;
+        const RIGHT_MIN: f32 = 120.0;
         let screen_w = ctx.available_rect().width();
         let right_max = (screen_w - SIDEBAR_W - CENTER_MIN).max(RIGHT_MIN);
 
@@ -391,7 +391,7 @@ impl MainWindow {
         // Right panel - Diff viewer (full height, declared before central for z-order)
         egui::SidePanel::right("right_panel")
             .resizable(true)
-            .default_width(400.0)
+            .default_width(350.0)
             .width_range(RIGHT_MIN..=right_max)
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(30, 30, 35),

@@ -52,7 +52,7 @@ impl CommitPanel {
             } else {
                 (format!("{} — over recommended limit", n), STATUS_DELETED)
             };
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 ui.label(egui::RichText::new(hint_text).color(hint_color).small());
             });
         }
