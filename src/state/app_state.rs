@@ -10,6 +10,21 @@ use std::sync::Arc;
 
 use super::{RepositoryState, UIState};
 
+/// Severity of a command log entry
+#[derive(Clone)]
+pub enum LogLevel {
+    Info,
+    Error,
+}
+
+/// A single entry in the session command log
+#[derive(Clone)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: LogLevel,
+    pub message: String,
+}
+
 /// Main application state
 pub struct AppState {
     /// Repository-specific state (None if no repository is loaded)
@@ -26,6 +41,9 @@ pub struct AppState {
 
     /// Information message to display to user (if any)
     pub info_message: Option<String>,
+
+    /// Session-scoped log of git operations
+    pub command_log: Vec<LogEntry>,
 }
 
 /// Application configuration
@@ -74,6 +92,7 @@ impl AppState {
             config: AppConfig::default(),
             error_message: None,
             info_message: None,
+            command_log: Vec::new(),
         }
     }
 
@@ -98,8 +117,13 @@ impl AppState {
 
     /// Set an error message to display to the user
     pub fn set_error(&mut self, message: String) {
+        self.command_log.push(LogEntry {
+            timestamp: now_str(),
+            level: LogLevel::Error,
+            message: message.clone(),
+        });
+        log::error!("User error: {}", message);
         self.error_message = Some(message);
-        log::error!("User error: {}", self.error_message.as_ref().unwrap());
     }
 
     /// Clear the current error message
@@ -109,13 +133,23 @@ impl AppState {
 
     /// Set an info message to display to the user
     pub fn set_info(&mut self, message: String) {
+        self.command_log.push(LogEntry {
+            timestamp: now_str(),
+            level: LogLevel::Info,
+            message: message.clone(),
+        });
+        log::info!("User info: {}", message);
         self.info_message = Some(message);
-        log::info!("User info: {}", self.info_message.as_ref().unwrap());
     }
 
     /// Clear the current info message
     pub fn clear_info(&mut self) {
         self.info_message = None;
+    }
+
+    /// Clear the session command log
+    pub fn clear_command_log(&mut self) {
+        self.command_log.clear();
     }
 
     /// Load a repository into the application state
@@ -223,6 +257,15 @@ impl Default for AppState {
 
 /// Type alias for shared application state
 pub type SharedAppState = Arc<Mutex<AppState>>;
+
+fn now_str() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{:02}:{:02}:{:02}", (s % 86400) / 3600, (s % 3600) / 60, s % 60)
+}
 
 #[cfg(test)]
 mod tests {

@@ -31,6 +31,9 @@ pub struct MainWindow {
     /// Commit panel component
     commit_panel: crate::ui::CommitPanel,
 
+    /// Command log floating window
+    command_log: crate::ui::CommandLog,
+
     /// Error dialog component
     error_dialog: ErrorDialog,
 
@@ -70,6 +73,7 @@ impl MainWindow {
             file_list: crate::ui::FileList::new(),
             diff_viewer: crate::ui::EnhancedDiffViewer::new(),
             commit_panel: crate::ui::CommitPanel::new(),
+            command_log: crate::ui::CommandLog::new(),
             error_dialog: ErrorDialog::new(),
             recent_repos: RecentRepos::load_default(),
             file_watcher: crate::services::file_watcher_service::SharedFileWatcher::new(),
@@ -121,6 +125,14 @@ impl MainWindow {
 
         // Show error dialog
         self.error_dialog.show(ctx);
+
+        // Command log window (floating, toggled from View menu)
+        {
+            let entries = { self.state.lock().command_log.clone() };
+            if self.command_log.show(ctx, &entries) {
+                self.state.lock().clear_command_log();
+            }
+        }
 
         // Status bar — declared before menu bar and central panel so egui
         // allocates it from the bottom of the window first.
@@ -224,9 +236,17 @@ impl MainWindow {
                     }
                 });
 
-                // View menu (placeholder for future)
+                // View menu
                 ui.menu_button("View", |ui| {
-                    ui.label("View options coming soon");
+                    let label = if self.command_log.is_visible() {
+                        "Hide Command Log"
+                    } else {
+                        "Show Command Log"
+                    };
+                    if ui.button(label).clicked() {
+                        self.command_log.toggle();
+                        ui.close_menu();
+                    }
                 });
 
                 // Help menu (placeholder for future)
