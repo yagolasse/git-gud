@@ -8,6 +8,12 @@ use eframe::egui;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
+#[derive(PartialEq, Clone, Copy)]
+enum ActiveTab {
+    Changes,
+    History,
+}
+
 /// Main application window
 pub struct MainWindow {
     /// Shared application state
@@ -39,6 +45,9 @@ pub struct MainWindow {
 
     /// Repository path for open dialog
     open_repo_path: String,
+
+    /// Active tab (Changes or History)
+    active_tab: ActiveTab,
 }
 
 impl MainWindow {
@@ -66,6 +75,7 @@ impl MainWindow {
             file_watcher: crate::services::file_watcher_service::SharedFileWatcher::new(),
             show_open_dialog: true, // Show dialog on startup
             open_repo_path: ".".to_string(),
+            active_tab: ActiveTab::Changes,
         };
 
         // Try to load initial repository if provided
@@ -355,26 +365,17 @@ impl MainWindow {
         });
     }
 
-    /// Show main UI with three-panel layout
+    /// Show main UI: sidebar + tab bar spanning center+right + tabbed content
     fn show_main_ui(&mut self, ctx: &egui::Context) {
-        // Side panels must be declared BEFORE CentralPanel for correct z-ordering
-
-        // Common frame style: zero margins, fill covers entire panel area
         let panel_frame = egui::Frame {
             inner_margin: egui::Margin::ZERO,
             outer_margin: egui::Margin::ZERO,
             ..Default::default()
         };
 
-        // Sidebar is fixed at 186px per design spec (non-resizable).
-        // The right panel is capped so the central panel always gets ≥ CENTER_MIN px.
         const SIDEBAR_W: f32 = 186.0;
-        const CENTER_MIN: f32 = 200.0;
-        const RIGHT_MIN: f32 = 120.0;
-        let screen_w = ctx.available_rect().width();
-        let right_max = (screen_w - SIDEBAR_W - CENTER_MIN).max(RIGHT_MIN);
 
-        // Left panel - Sidebar (fixed width, no resize handle)
+        // Sidebar — fixed, declared first for z-order
         egui::SidePanel::left("left_panel")
             .resizable(true)
             .default_width(SIDEBAR_W)
@@ -388,29 +389,111 @@ impl MainWindow {
                 self.branch_list.show(ui, &mut state);
             });
 
-        // Right panel - Diff viewer (full height, declared before central for z-order)
-        egui::SidePanel::right("right_panel")
-            .resizable(true)
-            .default_width(350.0)
-            .width_range(RIGHT_MIN..=right_max)
-            .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(30, 30, 35),
-                ..panel_frame
-            })
-            .show(ctx, |ui| {
-                let mut state = self.state.lock();
-                self.diff_viewer.show(ui, &mut state);
-            });
-
-        // Central panel - file lists + commit box pinned at bottom
+        // Everything else: tab bar + tab content
         egui::CentralPanel::default()
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(42, 42, 47),
                 ..panel_frame
             })
             .show(ctx, |ui| {
-                // Commit panel pinned to bottom — allocate it first so file list
-                // gets exactly the remaining height.
+                self.show_tab_bar(ui);
+                match self.active_tab {
+                    ActiveTab::Changes => self.show_changes_tab(ui, panel_frame),
+                    ActiveTab::History => self.show_history_tab(ui),
+                }
+            });
+    }
+
+    /// Painter-based tab bar spanning the full center+right width
+    fn show_tab_bar(&mut self, ui: &mut egui::Ui) {
+        const TAB_H: f32 = 32.0;
+        const TAB_BG: egui::Color32 = egui::Color32::from_rgb(25, 25, 30);
+        const TEXT_INACTIVE: egui::Color32 = egui::Color32::from_rgb(150, 150, 155);
+        const TEXT_HOVER: egui::Color32 = egui::Color32::from_rgb(210, 210, 215);
+        const BORDER_COLOR: egui::Color32 = egui::Color32::from_rgb(50, 50, 58);
+
+        let available_width = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(available_width, TAB_H), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            ui.painter().rect_filled(rect, 0.0, TAB_BG);
+            // Bottom separator
+            ui.painter().hline(
+                rect.min.x..=rect.max.x,
+                rect.max.y - 1.0,
+                egui::Stroke::new(1.0, BORDER_COLOR),
+            );
+        }
+
+        let font = egui::FontId::proportional(12.0);
+        let mut x = rect.min.x + 8.0;
+
+        for (label, tab) in [
+            ("Changes", ActiveTab::Changes),
+            ("History", ActiveTab::History),
+        ] {
+            let galley =
+                ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), TEXT_INACTIVE));
+            let tab_w = galley.size().x + 28.0;
+            let tab_rect = egui::Rect::from_min_size(
+                egui::pos2(x, rect.min.y),
+                egui::vec2(tab_w, TAB_H),
+            );
+            let tab_id = ui.id().with("tab_bar").with(label);
+            let tab_resp = ui.interact(tab_rect, tab_id, egui::Sense::click());
+
+            let active = self.active_tab == tab;
+            let text_color = if active {
+                egui::Color32::WHITE
+            } else if tab_resp.hovered() {
+                TEXT_HOVER
+            } else {
+                TEXT_INACTIVE
+            };
+
+            if ui.is_rect_visible(tab_rect) {
+                ui.painter().text(
+                    tab_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    font.clone(),
+                    text_color,
+                );
+
+                if active {
+                    // 2px bottom border
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(tab_rect.min.x + 4.0, tab_rect.max.y - 2.0),
+                            egui::vec2(tab_w - 8.0, 2.0),
+                        ),
+                        0.0,
+                        egui::Color32::WHITE,
+                    );
+                }
+            }
+
+            if tab_resp.clicked() {
+                self.active_tab = tab;
+            }
+
+            x += tab_w;
+        }
+    }
+
+    /// Changes tab: resizable file list panel on the left, diff viewer on the right
+    fn show_changes_tab(&mut self, ui: &mut egui::Ui, panel_frame: egui::Frame) {
+        // File list + commit panel on the left
+        egui::SidePanel::left("file_list_panel")
+            .resizable(true)
+            .default_width(220.0)
+            .width_range(140.0..=400.0)
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(42, 42, 47),
+                ..panel_frame
+            })
+            .show_inside(ui, |ui| {
                 egui::TopBottomPanel::bottom("commit_panel_bottom")
                     .resizable(false)
                     .frame(egui::Frame {
@@ -422,13 +505,35 @@ impl MainWindow {
                         let mut state = self.state.lock();
                         self.commit_panel.show(ui, &mut state);
                     });
-
-                // File list fills whatever space remains above the commit panel.
-                {
-                    let mut state = self.state.lock();
-                    self.file_list.show(ui, &mut state);
-                }
+                let mut state = self.state.lock();
+                self.file_list.show(ui, &mut state);
             });
+
+        // Diff viewer fills the rest
+        egui::CentralPanel::default()
+            .frame(egui::Frame {
+                fill: egui::Color32::from_rgb(30, 30, 35),
+                ..panel_frame
+            })
+            .show_inside(ui, |ui| {
+                let mut state = self.state.lock();
+                self.diff_viewer.show(ui, &mut state);
+            });
+    }
+
+    /// History tab: placeholder for the commit graph
+    fn show_history_tab(&mut self, ui: &mut egui::Ui) {
+        let center = ui.available_rect_before_wrap().center();
+        ui.allocate_space(ui.available_size());
+        if ui.is_rect_visible(ui.max_rect()) {
+            ui.painter().text(
+                center,
+                egui::Align2::CENTER_CENTER,
+                "Commit history coming soon",
+                egui::FontId::proportional(13.0),
+                egui::Color32::from_rgb(95, 95, 100),
+            );
+        }
     }
 }
 
