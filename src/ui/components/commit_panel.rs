@@ -1,161 +1,110 @@
-//! Commit panel component for Git Gud
-//!
-//! This component provides UI for creating commits.
-
 use crate::state::AppState;
 use eframe::egui;
 
-/// Commit panel UI component
-pub struct CommitPanel {
-    /// Author name override
-    author_name: String,
+const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(95, 95, 100);
+const STATUS_MODIFIED: egui::Color32 = egui::Color32::from_rgb(226, 167, 75);
+const STATUS_DELETED: egui::Color32 = egui::Color32::from_rgb(241, 76, 76);
+const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(9, 71, 113);
+const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(100, 170, 240);
 
-    /// Author email override
-    author_email: String,
+pub struct CommitPanel {
+    amend: bool,
 }
 
 impl CommitPanel {
-    /// Create a new commit panel component
     pub fn new() -> Self {
-        Self {
-            author_name: String::new(),
-            author_email: String::new(),
-        }
+        Self { amend: false }
     }
 
-    /// Show the commit panel component
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        ui.heading("Commit");
-
-        // Check if repository is loaded
         if !state.has_repository() {
-            ui.label("No repository loaded");
             return;
         }
 
-        // Staged files info
-        ui.horizontal(|ui| {
-            ui.label("Staged files:");
-            let staged_count = state.repository_state().staged_files.len();
-            ui.label(format!("{}", staged_count));
-
-            if staged_count > 0 {
-                ui.colored_label(egui::Color32::GREEN, "✓ Ready to commit");
-            } else {
-                ui.colored_label(egui::Color32::YELLOW, "No staged changes");
-            }
-        });
-
         ui.separator();
 
-        // Commit message input
-        ui.label("Commit message:");
+        let staged_count = state.repository_state().staged_files.len();
 
-        // Summary (first line)
-        ui.horizontal(|ui| {
-            ui.label("Summary:");
-            ui.text_edit_singleline(&mut state.ui_state.commit_summary)
-                .on_hover_text("Brief description of changes (required)");
-        });
-
-        // Description (body)
-        ui.label("Description:");
+        // Subject line
         ui.add(
-            egui::TextEdit::multiline(&mut state.ui_state.commit_description)
-                .hint_text("Detailed description of changes (optional)")
-                .desired_rows(5)
+            egui::TextEdit::singleline(&mut state.ui_state.commit_summary)
+                .hint_text("Summary (required)")
                 .desired_width(f32::INFINITY),
         );
 
-        // Character counter
-        let total_chars =
-            state.ui_state.commit_summary.len() + state.ui_state.commit_description.len();
-        ui.horizontal(|ui| {
-            ui.label(format!("Characters: {}", total_chars));
+        ui.add_space(2.0);
 
-            if state.ui_state.is_commit_message_valid() {
-                ui.colored_label(egui::Color32::GREEN, "✓ Valid message");
+        // Body textarea
+        ui.add(
+            egui::TextEdit::multiline(&mut state.ui_state.commit_description)
+                .hint_text("Description (optional)")
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        );
+
+        // Character hint — right-aligned, only shown when summary is non-empty
+        let n = state.ui_state.commit_summary.len();
+        if n > 0 {
+            let (hint_text, hint_color) = if n <= 50 {
+                (format!("{}/50", n), TEXT_DIM)
+            } else if n <= 72 {
+                (format!("{}/72 — getting long", n), STATUS_MODIFIED)
             } else {
-                ui.colored_label(egui::Color32::RED, "✗ Summary required");
-            }
-        });
-
-        ui.separator();
-
-        // Advanced options
-        ui.collapsing("Advanced options", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Author name:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.author_name)
-                        .hint_text("Override author name"),
-                );
+                (format!("{} — over recommended limit", n), STATUS_DELETED)
+            };
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new(hint_text).color(hint_color).small());
             });
+        }
 
-            ui.horizontal(|ui| {
-                ui.label("Author email:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.author_email)
-                        .hint_text("Override author email"),
-                );
-            });
+        ui.add_space(2.0);
 
-            ui.checkbox(
-                &mut state.ui_state.show_only_staged,
-                "Show only staged files",
-            );
-            ui.checkbox(
-                &mut state.ui_state.show_only_unstaged,
-                "Show only unstaged files",
-            );
-        });
-
-        ui.separator();
-
-        // Commit button and actions
+        // Footer: Amend checkbox + Commit button
         ui.horizontal(|ui| {
-            // Commit button
-            let commit_enabled = !state.repository_state().staged_files.is_empty()
-                && state.ui_state.is_commit_message_valid();
+            ui.checkbox(&mut self.amend, "Amend");
 
-            if ui
-                .add_enabled(commit_enabled, egui::Button::new("💾 Commit"))
-                .on_hover_text("Create commit with staged changes")
-                .clicked()
-            {
-                self.create_commit(state);
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let commit_enabled = if self.amend {
+                    state.ui_state.is_commit_message_valid()
+                } else {
+                    staged_count > 0 && state.ui_state.is_commit_message_valid()
+                };
 
-            // Clear button
-            if ui.button("🗑️ Clear").clicked() {
-                state.ui_state.clear_commit_message();
-                state.set_info("Commit message cleared".to_string());
-            }
+                let btn_label = if self.amend {
+                    "Amend commit".to_string()
+                } else if staged_count > 0 {
+                    format!(
+                        "Commit {} file{}",
+                        staged_count,
+                        if staged_count == 1 { "" } else { "s" }
+                    )
+                } else {
+                    "Commit".to_string()
+                };
 
-            // Refresh button
-            if ui.button("🔄 Refresh").clicked() {
-                if let Err(e) = state.refresh_repository() {
-                    state.set_error(format!("Failed to refresh repository: {}", e));
+                let btn = egui::Button::new(
+                    egui::RichText::new(&btn_label).color(ACCENT_TEXT),
+                )
+                .fill(if commit_enabled {
+                    ACCENT_SEL_BG
+                } else {
+                    egui::Color32::from_rgb(30, 30, 35)
+                });
+
+                if ui.add_enabled(commit_enabled, btn).clicked() {
+                    self.create_commit(state);
                 }
-            }
-        });
-
-        // Commit history link
-        ui.horizontal(|ui| {
-            ui.label("View commit history:");
-            if ui.button("📜 History").clicked() {
-                // TODO: Implement commit history view
-                state.set_info("Commit history feature not yet implemented".to_string());
-            }
+            });
         });
     }
 
-    /// Create a commit with the current message
     fn create_commit(&mut self, state: &mut AppState) {
+        if self.amend {
+            state.set_info("Amend not yet implemented".to_string());
+            return;
+        }
+
         let message = state.ui_state.commit_message();
-
-        log::info!("Creating commit: {}", message);
-
         match state.repository_state_mut().create_commit(&message) {
             Ok(()) => {
                 state.set_info(format!(
@@ -163,20 +112,12 @@ impl CommitPanel {
                     message.lines().next().unwrap_or("")
                 ));
                 state.ui_state.clear_commit_message();
-
-                // Clear file selection after commit
                 state.ui_state.clear_file_selection();
             }
             Err(e) => {
                 state.set_error(format!("Failed to create commit: {}", e));
             }
         }
-    }
-
-    /// Clear author overrides
-    pub fn clear_author_overrides(&mut self) {
-        self.author_name.clear();
-        self.author_email.clear();
     }
 }
 

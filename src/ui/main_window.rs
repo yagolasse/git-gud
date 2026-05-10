@@ -16,11 +16,8 @@ pub struct MainWindow {
     /// Branch list component
     branch_list: crate::ui::BranchList,
 
-    /// Unstaged files list component
-    unstaged_list: crate::ui::FileList,
-
-    /// Staged files list component  
-    staged_list: crate::ui::FileList,
+    /// Unified file list (staged + unstaged sections)
+    file_list: crate::ui::FileList,
 
     /// Enhanced diff viewer component
     diff_viewer: crate::ui::EnhancedDiffViewer,
@@ -61,8 +58,7 @@ impl MainWindow {
         let mut window = Self {
             state: Arc::new(Mutex::new(AppState::new())),
             branch_list: crate::ui::BranchList::new(),
-            unstaged_list: crate::ui::FileList::new("Unstaged Files", false),
-            staged_list: crate::ui::FileList::new("Staged Files", true),
+            file_list: crate::ui::FileList::new(),
             diff_viewer: crate::ui::EnhancedDiffViewer::new(),
             commit_panel: crate::ui::CommitPanel::new(),
             error_dialog: ErrorDialog::new(),
@@ -370,20 +366,19 @@ impl MainWindow {
             ..Default::default()
         };
 
-        // Constrain side-panel widths so the central panel always has at least
-        // MIN_CENTER_WIDTH pixels.  Without this the right panel can grow to
-        // overlap the central panel (which renders last and therefore on top).
-        const LEFT_MIN: f32 = 150.0;
+        // Sidebar is fixed at 186px per design spec (non-resizable).
+        // The right panel is capped so the central panel always gets ≥ CENTER_MIN px.
+        const SIDEBAR_W: f32 = 186.0;
         const CENTER_MIN: f32 = 250.0;
         const RIGHT_MIN: f32 = 200.0;
         let screen_w = ctx.available_rect().width();
-        let right_max = (screen_w - LEFT_MIN - CENTER_MIN).max(RIGHT_MIN);
+        let right_max = (screen_w - SIDEBAR_W - CENTER_MIN).max(RIGHT_MIN);
 
-        // Left panel - Branches
+        // Left panel - Sidebar (fixed width, no resize handle)
         egui::SidePanel::left("left_panel")
             .resizable(true)
-            .default_width(250.0)
-            .min_width(LEFT_MIN)
+            .default_width(SIDEBAR_W)
+            .width_range(SIDEBAR_W..=350.0)
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(30, 30, 35),
                 ..panel_frame
@@ -393,7 +388,7 @@ impl MainWindow {
                 self.branch_list.show(ui, &mut state);
             });
 
-        // Right panel - Diff view and Commit (declared before central for z-order)
+        // Right panel - Diff viewer (full height, declared before central for z-order)
         egui::SidePanel::right("right_panel")
             .resizable(true)
             .default_width(400.0)
@@ -403,59 +398,35 @@ impl MainWindow {
                 ..panel_frame
             })
             .show(ctx, |ui| {
-                let available = ui.available_height();
-                let top_default = (available * 0.6).max(150.0);
-
-                egui::TopBottomPanel::top("right_top")
-                    .resizable(true)
-                    .default_height(top_default)
-                    .min_height(150.0)
-                    .frame(egui::Frame {
-                        fill: egui::Color32::from_rgb(30, 30, 35),
-                        ..panel_frame
-                    })
-                    .show_inside(ui, |ui| {
-                        let mut state = self.state.lock();
-                        self.diff_viewer.show(ui, &mut state);
-                    });
-
-                // Commit panel fills whatever space remains below the diff viewer.
-                // Using the leftover `ui` directly (no second TopBottomPanel) means
-                // there is only one stored height for this split, so the two halves
-                // always sum to 100% of the right panel height.
-                {
-                    let mut state = self.state.lock();
-                    self.commit_panel.show(ui, &mut state);
-                }
+                let mut state = self.state.lock();
+                self.diff_viewer.show(ui, &mut state);
             });
 
-        // Central panel - Unstaged and Staged files (declared last so it fills remaining space)
+        // Central panel - file lists + commit box pinned at bottom
         egui::CentralPanel::default()
             .frame(egui::Frame {
                 fill: egui::Color32::from_rgb(42, 42, 47),
                 ..panel_frame
             })
             .show(ctx, |ui| {
-                let available = ui.available_height();
-                let top_default = (available * 0.5).max(150.0);
-
-                egui::TopBottomPanel::top("middle_top")
-                    .resizable(true)
-                    .default_height(top_default)
-                    .min_height(150.0)
+                // Commit panel pinned to bottom — allocate it first so file list
+                // gets exactly the remaining height.
+                egui::TopBottomPanel::bottom("commit_panel_bottom")
+                    .resizable(false)
                     .frame(egui::Frame {
                         fill: egui::Color32::from_rgb(42, 42, 47),
-                        ..panel_frame
+                        inner_margin: egui::Margin::symmetric(8.0, 6.0),
+                        ..Default::default()
                     })
                     .show_inside(ui, |ui| {
                         let mut state = self.state.lock();
-                        self.unstaged_list.show(ui, &mut state);
+                        self.commit_panel.show(ui, &mut state);
                     });
 
-                // Staged list fills whatever space remains below the unstaged list.
+                // File list fills whatever space remains above the commit panel.
                 {
                     let mut state = self.state.lock();
-                    self.staged_list.show(ui, &mut state);
+                    self.file_list.show(ui, &mut state);
                 }
             });
     }
