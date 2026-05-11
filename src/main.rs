@@ -33,7 +33,7 @@ fn run_gui_with_path(initial_path: Option<std::path::PathBuf>) -> anyhow::Result
 
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-            Box::new(GitGudApp::new_with_path(cc, initial_path.clone()))
+            Ok(Box::new(GitGudApp::new_with_path(cc, initial_path.clone())))
         }),
     )
     .map_err(|e| anyhow::anyhow!("GUI error: {}", e))

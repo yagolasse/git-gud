@@ -10,9 +10,9 @@ readme = "README.md"
 
 [dependencies]
 # GUI framework
-eframe = "0.27.0"
-egui = "0.27.0"
-egui_extras = "0.27.0"
+eframe = "0.29"
+egui = "0.29"
+egui_extras = "0.29"
 
 # Git operations
 git2 = "0.20.0"

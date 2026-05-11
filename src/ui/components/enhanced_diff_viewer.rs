@@ -261,7 +261,7 @@ impl EnhancedDiffViewer {
         };
 
         egui::ScrollArea::vertical()
-            .id_source(egui::Id::new("unified_diff").with(file_path))
+            .id_salt(egui::Id::new("unified_diff").with(file_path))
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, lines.len(), |ui, row_range| {
                 for i in row_range {
@@ -353,7 +353,7 @@ impl EnhancedDiffViewer {
 
         ui.columns(2, |columns| {
             let left_out = egui::ScrollArea::vertical()
-                .id_source(left_id)
+                .id_salt(left_id)
                 .auto_shrink([false, false])
                 .show_rows(&mut columns[0], ROW_HEIGHT, left_lines.len(), |ui, range| {
                     for i in range { Self::show_diff_row(ui, p, &left_lines[i]); }
@@ -361,7 +361,7 @@ impl EnhancedDiffViewer {
             new_sync_y = left_out.state.offset.y;
 
             let mut right_scroll = egui::ScrollArea::vertical()
-                .id_source(right_id)
+                .id_salt(right_id)
                 .auto_shrink([false, false]);
             if scroll_synced {
                 right_scroll = right_scroll.scroll_offset(egui::Vec2::new(0.0, sync_y));

@@ -251,7 +251,7 @@ impl VirtualScroll {
 
         // Create scroll area
         let scroll_area = egui::ScrollArea::vertical()
-            .id_source(self.id)
+            .id_salt(self.id)
             .scroll_offset(egui::Vec2::new(0.0, self.state.scroll_offset))
             .auto_shrink([false, false]);
 
