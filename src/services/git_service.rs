@@ -169,6 +169,32 @@ impl GitService {
         Ok(branches)
     }
 
+    /// Get ahead/behind counts for the current branch relative to its upstream.
+    /// Returns (ahead, behind), or (0, 0) if no upstream is configured.
+    pub fn get_ahead_behind(repo: &Repository) -> (usize, usize) {
+        let head = match repo.head() {
+            Ok(h) => h,
+            Err(_) => return (0, 0),
+        };
+
+        let local_oid = match head.target() {
+            Some(oid) => oid,
+            None => return (0, 0),
+        };
+
+        let upstream_oid = match repo
+            .branch_upstream_name(head.shorthand().unwrap_or(""))
+            .ok()
+            .and_then(|name| name.as_str().map(|s| s.to_string()))
+            .and_then(|name| repo.refname_to_id(&name).ok())
+        {
+            Some(oid) => oid,
+            None => return (0, 0),
+        };
+
+        repo.graph_ahead_behind(local_oid, upstream_oid).unwrap_or((0, 0))
+    }
+
     /// Get list of tag names
     pub fn get_tags(repo: &Repository) -> Result<Vec<String>> {
         log::info!("Getting tags");

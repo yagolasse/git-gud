@@ -40,6 +40,10 @@ pub struct RepositoryState {
     /// Tag names
     pub tags: Vec<String>,
 
+    /// Ahead/behind counts for the current branch
+    pub ahead: usize,
+    pub behind: usize,
+
     /// Recent commits (up to 500)
     pub commits: Vec<models::Commit>,
 }
@@ -74,6 +78,8 @@ impl RepositoryState {
             remotes: Vec::new(),
             stashes: Vec::new(),
             tags: Vec::new(),
+            ahead: 0,
+            behind: 0,
             commits: Vec::new(),
         };
 
@@ -104,6 +110,11 @@ impl RepositoryState {
 
         // Load tags
         self.tags = services::GitService::get_tags(&self.repository).unwrap_or_default();
+
+        // Load ahead/behind
+        let (ahead, behind) = services::GitService::get_ahead_behind(&self.repository);
+        self.ahead = ahead;
+        self.behind = behind;
 
         // Load recent commits
         self.commits = services::GitService::get_commits(&self.repository, 500).unwrap_or_default();

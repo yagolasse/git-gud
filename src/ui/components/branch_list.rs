@@ -345,10 +345,6 @@ impl BranchList {
             );
         }
 
-        if response.clicked() {
-            *open = !*open;
-        }
-
         let mut add_clicked = false;
         if show_add && response.hovered() {
             let btn_rect = egui::Rect::from_min_size(
@@ -371,6 +367,10 @@ impl BranchList {
                 );
             }
             add_clicked = btn.clicked();
+        }
+
+        if response.clicked() && !add_clicked {
+            *open = !*open;
         }
 
         add_clicked

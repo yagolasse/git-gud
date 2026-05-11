@@ -41,31 +41,38 @@ impl Toolbar {
             .unwrap_or_else(|| "—".to_string());
         x = self.pill_button(ui, p, x, cy, &branch_name, Some(p.lane_0), "pill_branch");
 
-        // Sync counter with painted arrows
+        let (ahead, behind) = state
+            .repository_state
+            .as_ref()
+            .map(|r| (r.ahead, r.behind))
+            .unwrap_or((0, 0));
+
         {
             let font = egui::FontId::proportional(11.0);
             let up_c = egui::pos2(x + 5.0, cy);
+            let up_color = if ahead > 0 { p.accent_success } else { p.text_tertiary };
             ui.painter().add(egui::Shape::convex_polygon(
                 vec![
                     egui::pos2(up_c.x - 3.0, up_c.y + 2.0),
                     egui::pos2(up_c.x + 3.0, up_c.y + 2.0),
                     egui::pos2(up_c.x, up_c.y - 2.5),
                 ],
-                p.text_tertiary,
+                up_color,
                 egui::Stroke::NONE,
             ));
-            ui.painter().text(egui::pos2(x + 10.0, cy), egui::Align2::LEFT_CENTER, "0", font.clone(), p.text_tertiary);
+            ui.painter().text(egui::pos2(x + 10.0, cy), egui::Align2::LEFT_CENTER, &ahead.to_string(), font.clone(), p.text_tertiary);
             let dn_c = egui::pos2(x + 24.0, cy);
+            let dn_color = if behind > 0 { p.accent_success } else { p.text_tertiary };
             ui.painter().add(egui::Shape::convex_polygon(
                 vec![
                     egui::pos2(dn_c.x - 3.0, dn_c.y - 2.0),
                     egui::pos2(dn_c.x + 3.0, dn_c.y - 2.0),
                     egui::pos2(dn_c.x, dn_c.y + 2.5),
                 ],
-                p.text_tertiary,
+                dn_color,
                 egui::Stroke::NONE,
             ));
-            ui.painter().text(egui::pos2(x + 29.0, cy), egui::Align2::LEFT_CENTER, "0", font, p.text_tertiary);
+            ui.painter().text(egui::pos2(x + 29.0, cy), egui::Align2::LEFT_CENTER, &behind.to_string(), font, p.text_tertiary);
         }
         x += 44.0;
 
@@ -91,6 +98,18 @@ impl Toolbar {
         x = push_r.max.x + 4.0;
         if push_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Push);
+        }
+
+        if let crate::state::NetworkStatus::Running { operation, .. } = &state.network_status {
+            let label = format!("{}...", operation);
+            let font = egui::FontId::proportional(11.0);
+            let label_w = ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), p.accent_text).size().x);
+            let ind_rect = egui::Rect::from_min_size(egui::pos2(x, cy - ITEM_H / 2.0), egui::vec2(label_w + 12.0, ITEM_H));
+            let time = ui.ctx().input(|i| i.time) as usize;
+            let dots = &["   ", ".  ", ".. ", "..."][time % 4usize];
+            let label_with_dots = format!("{}{}", label.trim_end_matches('.'), dots);
+            ui.painter().text(ind_rect.center(), egui::Align2::CENTER_CENTER, &label_with_dots, font, p.accent_text);
+            x = ind_rect.max.x + 4.0;
         }
 
         x = self.vsep(ui, p, x, cy);
@@ -144,20 +163,6 @@ impl Toolbar {
                 state.ui_state.show_stash_save_dialog = false;
                 state.ui_state.stash_message.clear();
             }
-        }
-
-        if let crate::state::NetworkStatus::Running { operation, .. } = &state.network_status {
-            let label = format!("{}...", operation);
-            let font = egui::FontId::proportional(11.0);
-            let label_w = ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), p.accent_text).size().x);
-            let indicator_x = bar_rect.max.x - 10.0 - 26.0 - label_w - 8.0;
-            ui.painter().text(
-                egui::pos2(indicator_x, cy),
-                egui::Align2::LEFT_CENTER,
-                label,
-                font,
-                p.accent_text,
-            );
         }
 
         // Settings — far right
