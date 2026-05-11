@@ -43,6 +43,7 @@ src/
 ├── state/
 │   ├── mod.rs
 │   ├── app_state.rs           # AppState, AppConfig, LogEntry/LogLevel, dark_mode toggle
+│   ├── prefs.rs               # AppPrefs — persists dark_mode + last_repo to disk
 │   ├── repository_state.rs    # RepositoryState (staged/unstaged files, branches, commits)
 │   └── ui_state.rs            # UIState (selections, commit text, pending actions)
 └── ui/
@@ -134,7 +135,6 @@ When adding a feature that touches multiple files, define the types/signatures i
 | Commit graph | `main_window.rs` History tab | Placeholder only |
 | Word-level diff | `enhanced_diff_viewer.rs` | `DiffDisplayMode::WordLevel` falls through to unified |
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
-| Config persistence | `app_state.rs` | User prefs reset on restart |
 | Settings dialog | toolbar gear icon | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
