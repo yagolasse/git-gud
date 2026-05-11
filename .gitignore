@@ -28,4 +28,7 @@ dist-ssr
 
 /target
 
+# User
+
 /temp
+.claude/settings.local.json
