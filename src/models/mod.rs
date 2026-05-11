@@ -56,6 +56,13 @@ pub struct FileChange {
     pub diff: Option<String>,
 }
 
+/// A single stash entry
+#[derive(Debug, Clone)]
+pub struct StashEntry {
+    pub index: usize,
+    pub message: String,
+}
+
 // Re-export diff module
 pub mod diff;
 pub use diff::*;

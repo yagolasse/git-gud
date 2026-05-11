@@ -33,6 +33,12 @@ pub struct RepositoryState {
 
     /// Remote repositories
     pub remotes: Vec<String>,
+
+    /// Stash entries
+    pub stashes: Vec<models::StashEntry>,
+
+    /// Recent commits (up to 500)
+    pub commits: Vec<models::Commit>,
 }
 
 impl RepositoryState {
@@ -63,6 +69,8 @@ impl RepositoryState {
             staged_files: Vec::new(),
             head_commit: None,
             remotes: Vec::new(),
+            stashes: Vec::new(),
+            commits: Vec::new(),
         };
 
         // Load initial data
@@ -86,6 +94,12 @@ impl RepositoryState {
 
         // Load remotes
         self.load_remotes()?;
+
+        // Load stashes
+        self.stashes = services::GitService::stash_list(&mut self.repository).unwrap_or_default();
+
+        // Load recent commits
+        self.commits = services::GitService::get_commits(&self.repository, 500).unwrap_or_default();
 
         Ok(())
     }
@@ -173,6 +187,60 @@ impl RepositoryState {
         self.refresh()?;
 
         Ok(())
+    }
+
+    /// Amend the HEAD commit
+    pub fn amend_commit(&mut self, summary: &str, description: &str) -> anyhow::Result<()> {
+        services::GitService::amend_commit(&self.repository, summary, description)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Delete a local branch
+    pub fn delete_branch(&mut self, name: &str) -> anyhow::Result<()> {
+        services::GitService::delete_branch(&self.repository, name)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Create a new local branch
+    pub fn create_branch(&mut self, name: &str, checkout: bool) -> anyhow::Result<()> {
+        services::GitService::create_branch(&self.repository, name, checkout)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Save working tree changes to the stash
+    pub fn stash_save(&mut self, message: &str) -> anyhow::Result<()> {
+        services::GitService::stash_save(&mut self.repository, message)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Apply and remove a stash entry
+    pub fn stash_pop(&mut self, index: usize) -> anyhow::Result<()> {
+        services::GitService::stash_pop(&mut self.repository, index)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Remove a stash entry without applying it
+    pub fn stash_drop(&mut self, index: usize) -> anyhow::Result<()> {
+        services::GitService::stash_drop(&mut self.repository, index)?;
+        self.stashes = services::GitService::stash_list(&mut self.repository).unwrap_or_default();
+        Ok(())
+    }
+
+    /// Pull from a remote (fast-forward only)
+    pub fn pull(&mut self, remote_name: &str) -> anyhow::Result<()> {
+        services::GitService::pull(&self.repository, remote_name)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Push the current branch to a remote
+    pub fn push(&mut self, remote_name: &str, branch_name: &str) -> anyhow::Result<()> {
+        services::GitService::push(&self.repository, remote_name, branch_name)
     }
 
     /// Get the current branch name

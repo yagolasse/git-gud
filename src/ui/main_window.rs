@@ -16,6 +16,7 @@ pub struct MainWindow {
     file_list: crate::ui::FileList,
     diff_viewer: crate::ui::EnhancedDiffViewer,
     commit_panel: crate::ui::CommitPanel,
+    commit_graph: crate::ui::CommitGraph,
     command_log: crate::ui::CommandLog,
     error_dialog: ErrorDialog,
     recent_repos: RecentRepos,
@@ -55,6 +56,7 @@ impl MainWindow {
             file_list: crate::ui::FileList::new(),
             diff_viewer: crate::ui::EnhancedDiffViewer::new(),
             commit_panel: crate::ui::CommitPanel::new(),
+            commit_graph: crate::ui::CommitGraph::new(),
             command_log: crate::ui::CommandLog::new(),
             error_dialog: ErrorDialog::new(),
             recent_repos: RecentRepos::load_default(),
@@ -126,7 +128,9 @@ impl MainWindow {
             }
         }
 
-        self.error_dialog.show(ctx);
+        if self.error_dialog.show(ctx) {
+            self.state.lock().clear_error();
+        }
 
         {
             let entries = { self.state.lock().command_log.clone() };
@@ -477,18 +481,8 @@ impl MainWindow {
     }
 
     fn show_history_tab(&mut self, ui: &mut egui::Ui) {
-        let p = crate::ui::colors::get(self.dark_mode);
-        let center = ui.available_rect_before_wrap().center();
-        ui.allocate_space(ui.available_size());
-        if ui.is_rect_visible(ui.max_rect()) {
-            ui.painter().text(
-                center,
-                egui::Align2::CENTER_CENTER,
-                "Commit history coming soon",
-                egui::FontId::proportional(13.0),
-                p.text_tertiary,
-            );
-        }
+        let mut state = self.state.lock();
+        self.commit_graph.show(ui, &mut state);
     }
 }
 

@@ -4,7 +4,7 @@
 
 use crate::models;
 use anyhow::{Result, anyhow};
-use git2::{BranchType, Commit, DiffOptions, ErrorCode, Repository, Status, StatusOptions};
+use git2::{BranchType, Commit, DiffOptions, ErrorCode, FetchOptions, PushOptions, RemoteCallbacks, Repository, Status, StatusOptions};
 use std::path::{Path, PathBuf};
 
 /// Git service for performing Git operations
@@ -296,6 +296,16 @@ impl GitService {
         Ok(())
     }
 
+    /// Delete a local branch (equivalent to `git branch -d`; errors if branch is not fully merged)
+    pub fn delete_branch(repo: &Repository, name: &str) -> Result<()> {
+        let mut branch = repo
+            .find_branch(name, BranchType::Local)
+            .map_err(|e| anyhow!("Branch '{}' not found: {}", name, e))?;
+        branch.delete().map_err(|e| anyhow!("Failed to delete branch '{}': {}", name, e))?;
+        log::info!("Branch '{}' deleted", name);
+        Ok(())
+    }
+
     /// Checkout a branch
     pub fn checkout_branch(repo: &Repository, branch_name: &str) -> Result<()> {
         log::info!("Checking out branch: {}", branch_name);
@@ -359,8 +369,210 @@ impl GitService {
             true
         })?;
 
+        // Fallback for untracked (new, unstaged) files: neither diff above covers them.
+        // Read the file directly and format as a new-file unified diff.
+        if diff_text.is_empty() {
+            let full_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                repo_path.join(relative_path)
+            };
+            if full_path.is_file() {
+                match std::fs::read_to_string(&full_path) {
+                    Ok(content) => {
+                        let path_str = relative_path.to_string_lossy();
+                        let line_count = content.lines().count().max(1);
+                        diff_text.push_str(&format!(
+                            "--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n",
+                            path_str, line_count
+                        ));
+                        for line in content.lines() {
+                            diff_text.push_str("+");
+                            diff_text.push_str(line);
+                            diff_text.push('\n');
+                        }
+                    }
+                    Err(_) => {
+                        diff_text.push_str("(binary file)\n");
+                    }
+                }
+            }
+        }
+
         log::debug!("Generated diff ({} bytes)", diff_text.len());
         Ok(diff_text)
+    }
+
+    /// Amend the HEAD commit with new message and current index state
+    pub fn amend_commit(repo: &Repository, summary: &str, description: &str) -> Result<()> {
+        let head = repo.head()?;
+        let head_commit = head.peel_to_commit()?;
+
+        let full_message = if description.is_empty() {
+            summary.to_string()
+        } else {
+            format!("{}\n\n{}", summary, description)
+        };
+
+        let mut index = repo.index()?;
+        let oid = index.write_tree()?;
+        let tree = repo.find_tree(oid)?;
+
+        head_commit.amend(Some("HEAD"), None, None, None, Some(&full_message), Some(&tree))?;
+        log::info!("Commit amended successfully");
+        Ok(())
+    }
+
+    /// Create a new branch, optionally checking it out
+    pub fn create_branch(repo: &Repository, name: &str, checkout: bool) -> Result<()> {
+        let head = repo.head()?;
+        let head_commit = head.peel_to_commit()?;
+        repo.branch(name, &head_commit, false)
+            .map_err(|e| anyhow!("Failed to create branch '{}': {}", name, e))?;
+
+        if checkout {
+            let refname = format!("refs/heads/{}", name);
+            repo.set_head(&refname)?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
+        }
+
+        log::info!("Branch '{}' created", name);
+        Ok(())
+    }
+
+    /// Save current working tree changes to the stash
+    pub fn stash_save(repo: &mut Repository, message: &str) -> Result<()> {
+        let sig = repo.signature()?;
+        repo.stash_save(&sig, message, None)
+            .map_err(|e| anyhow!("Failed to stash: {}", e))?;
+        log::info!("Stash saved: {}", message);
+        Ok(())
+    }
+
+    /// List all stash entries
+    pub fn stash_list(repo: &mut Repository) -> Result<Vec<models::StashEntry>> {
+        let mut entries = Vec::new();
+        repo.stash_foreach(|index, message, _oid| {
+            entries.push(models::StashEntry {
+                index,
+                message: message.to_string(),
+            });
+            true
+        })?;
+        Ok(entries)
+    }
+
+    /// Apply the stash at `index` and remove it from the stash list
+    pub fn stash_pop(repo: &mut Repository, index: usize) -> Result<()> {
+        repo.stash_pop(index, None)
+            .map_err(|e| anyhow!("Failed to pop stash {}: {}", index, e))?;
+        log::info!("Stash {} popped", index);
+        Ok(())
+    }
+
+    /// Remove the stash at `index` without applying it
+    pub fn stash_drop(repo: &mut Repository, index: usize) -> Result<()> {
+        repo.stash_drop(index)
+            .map_err(|e| anyhow!("Failed to drop stash {}: {}", index, e))?;
+        log::info!("Stash {} dropped", index);
+        Ok(())
+    }
+
+    /// Pull from a remote (fast-forward only)
+    pub fn pull(repo: &Repository, remote_name: &str) -> Result<()> {
+        let head = repo.head()?;
+        let branch_name = head.shorthand()
+            .ok_or_else(|| anyhow!("No current branch"))?.to_string();
+
+        let mut remote = repo.find_remote(remote_name)
+            .map_err(|_| anyhow!("Remote '{}' not found", remote_name))?;
+
+        let mut cbs = RemoteCallbacks::new();
+        Self::set_auth_callbacks(&mut cbs);
+        let mut fetch_opts = FetchOptions::new();
+        fetch_opts.remote_callbacks(cbs);
+        remote.fetch(&[&branch_name], Some(&mut fetch_opts), None)?;
+        drop(remote);
+
+        let remote_ref_name = format!("refs/remotes/{}/{}", remote_name, branch_name);
+        let remote_oid = if let Ok(r) = repo.find_reference(&remote_ref_name) {
+            r.target().ok_or_else(|| anyhow!("Remote tracking ref has no target"))?
+        } else {
+            repo.find_reference("FETCH_HEAD")?
+                .target()
+                .ok_or_else(|| anyhow!("FETCH_HEAD has no target"))?
+        };
+
+        let annotated = repo.find_annotated_commit(remote_oid)?;
+        let (analysis, _) = repo.merge_analysis(&[&annotated])?;
+
+        if analysis.is_up_to_date() {
+            log::info!("Already up to date");
+            return Ok(());
+        }
+
+        if !analysis.is_fast_forward() {
+            return Err(anyhow!("Cannot pull: merge required (not a fast-forward)"));
+        }
+
+        let refname = format!("refs/heads/{}", branch_name);
+        let mut local_ref = repo.find_reference(&refname)?;
+        local_ref.set_target(remote_oid, "Fast-forward pull")?;
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+        log::info!("Pull successful (fast-forward)");
+        Ok(())
+    }
+
+    /// Push a branch to a remote
+    pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<()> {
+        let mut remote = repo.find_remote(remote_name)
+            .map_err(|_| anyhow!("Remote '{}' not found", remote_name))?;
+
+        let mut cbs = RemoteCallbacks::new();
+        Self::set_auth_callbacks(&mut cbs);
+        let mut push_opts = PushOptions::new();
+        push_opts.remote_callbacks(cbs);
+        let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+        remote.push(&[&refspec], Some(&mut push_opts))
+            .map_err(|e| anyhow!("Push failed: {}", e))?;
+        log::info!("Push successful");
+        Ok(())
+    }
+
+    fn set_auth_callbacks(cbs: &mut RemoteCallbacks<'_>) {
+        cbs.credentials(|_url, username_from_url, _allowed_types| {
+            if let Some(username) = username_from_url {
+                if let Ok(cred) = git2::Cred::ssh_key_from_agent(username) {
+                    return Ok(cred);
+                }
+            }
+            let user = std::env::var("GIT_USER").unwrap_or_default();
+            let pass = std::env::var("GIT_PASS").unwrap_or_default();
+            if !user.is_empty() {
+                git2::Cred::userpass_plaintext(&user, &pass)
+            } else {
+                Err(git2::Error::from_str("No credentials configured"))
+            }
+        });
+    }
+
+    /// Get recent commits via RevWalk (topological + time order)
+    pub fn get_commits(repo: &Repository, limit: usize) -> Result<Vec<models::Commit>> {
+        let mut walk = repo.revwalk()?;
+        walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+        if repo.head().is_ok() {
+            walk.push_head()?;
+        } else {
+            return Ok(Vec::new());
+        }
+
+        let mut commits = Vec::with_capacity(limit.min(256));
+        for oid_result in walk.take(limit) {
+            let oid = oid_result?;
+            let commit = repo.find_commit(oid)?;
+            commits.push(Self::commit_to_model(&commit));
+        }
+        Ok(commits)
     }
 
     /// Convert git2::Commit to models::Commit

@@ -9,6 +9,8 @@ pub enum PendingAction {
     UnstageSelected(Vec<PathBuf>),
     CheckoutBranch(String),
     CreateCommit(String),
+    Pull,
+    Push,
 }
 
 /// UI-specific state
@@ -37,6 +39,15 @@ pub struct UIState {
 
     /// Whether files have been staged/unstaged since last diff refresh
     pub files_staged_or_unstaged: bool,
+
+    /// Create-branch dialog visibility and input
+    pub show_create_branch_dialog: bool,
+    pub new_branch_name: String,
+    pub new_branch_checkout: bool,
+
+    /// Stash-save dialog visibility and input
+    pub show_stash_save_dialog: bool,
+    pub stash_message: String,
 }
 
 impl UIState {
@@ -52,6 +63,11 @@ impl UIState {
             middle_bottom_height: 300.0,
             pending_action: None,
             files_staged_or_unstaged: false,
+            show_create_branch_dialog: false,
+            new_branch_name: String::new(),
+            new_branch_checkout: true,
+            show_stash_save_dialog: false,
+            stash_message: String::new(),
         }
     }
 

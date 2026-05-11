@@ -191,6 +191,15 @@ impl AppState {
         Ok(())
     }
 
+    /// Pre-populate the commit message fields from the HEAD commit (used when amend is toggled on)
+    pub fn prefill_amend_message(&mut self) {
+        if let Some(repo_state) = &self.repository_state {
+            if let Some(head) = &repo_state.head_commit {
+                self.ui_state.set_commit_message(&head.message);
+            }
+        }
+    }
+
     /// Refresh repository status (unstaged/staged files, branches, etc.)
     pub fn refresh_repository(&mut self) -> anyhow::Result<()> {
         if let Some(repo_state) = &mut self.repository_state {
@@ -270,6 +279,22 @@ impl AppState {
                     } else {
                         self.set_info("Commit created successfully".to_string());
                         self.ui_state.clear_commit_message();
+                    }
+                }
+                super::ui_state::PendingAction::Pull => {
+                    match self.repository_state_mut().pull("origin") {
+                        Ok(()) => self.set_info("Pull successful".to_string()),
+                        Err(e) => self.set_error(format!("Pull failed: {}", e)),
+                    }
+                }
+                super::ui_state::PendingAction::Push => {
+                    let branch = self.repository_state
+                        .as_ref()
+                        .and_then(|r| r.current_branch().map(|b| b.to_string()))
+                        .unwrap_or_else(|| "main".to_string());
+                    match self.repository_state_mut().push("origin", &branch) {
+                        Ok(()) => self.set_info("Push successful".to_string()),
+                        Err(e) => self.set_error(format!("Push failed: {}", e)),
                     }
                 }
             }

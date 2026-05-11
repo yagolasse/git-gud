@@ -83,20 +83,68 @@ impl Toolbar {
 
         let (pull_r, pull_clk) = self.ghost_btn(ui, p, x, cy, "Pull", false, "btn_pull");
         x = pull_r.max.x + 4.0;
-        if pull_clk { state.set_info("Pull not yet implemented".to_string()); }
+        if pull_clk && state.has_repository() {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
+        }
 
         let (push_r, push_clk) = self.ghost_btn(ui, p, x, cy, "Push", false, "btn_push");
         x = push_r.max.x + 4.0;
-        if push_clk { state.set_info("Push not yet implemented".to_string()); }
+        if push_clk && state.has_repository() {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::Push);
+        }
 
         x = self.vsep(ui, p, x, cy);
 
         let (nb_r, nb_clk) = self.ghost_btn(ui, p, x, cy, "New branch", false, "btn_newbranch");
         x = nb_r.max.x + 4.0;
-        if nb_clk { state.set_info("New branch not yet implemented".to_string()); }
+        if nb_clk && state.has_repository() {
+            state.ui_state.show_create_branch_dialog = true;
+        }
 
         let (_, st_clk) = self.ghost_btn(ui, p, x, cy, "Stash", false, "btn_stash");
-        if st_clk { state.set_info("Stash not yet implemented".to_string()); }
+        if st_clk && state.has_repository() {
+            state.ui_state.show_stash_save_dialog = true;
+        }
+
+        // Stash save dialog
+        if state.ui_state.show_stash_save_dialog {
+            let ctx = ui.ctx().clone();
+            let mut do_save = false;
+            let mut do_cancel = false;
+            egui::Window::new("Stash Changes")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label("Message (optional):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.ui_state.stash_message)
+                            .desired_width(240.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() { do_save = true; }
+                        if ui.button("Cancel").clicked() { do_cancel = true; }
+                    });
+                });
+            if do_save {
+                let msg = if state.ui_state.stash_message.is_empty() {
+                    "WIP".to_string()
+                } else {
+                    state.ui_state.stash_message.clone()
+                };
+                state.ui_state.show_stash_save_dialog = false;
+                state.ui_state.stash_message.clear();
+                match state.repository_state_mut().stash_save(&msg) {
+                    Ok(()) => state.set_info("Stash saved".to_string()),
+                    Err(e) => state.set_error(format!("Failed to stash: {}", e)),
+                }
+            }
+            if do_cancel {
+                state.ui_state.show_stash_save_dialog = false;
+                state.ui_state.stash_message.clear();
+            }
+        }
 
         // Settings — far right
         let gear_rect = egui::Rect::from_center_size(

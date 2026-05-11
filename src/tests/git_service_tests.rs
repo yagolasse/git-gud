@@ -396,6 +396,249 @@ fn test_commit_creation() -> Result<()> {
     Ok(())
 }
 
+/// Configure git identity on a repo so signature() works in tests
+fn setup_identity(repo: &git2::Repository) -> Result<()> {
+    let mut cfg = repo.config()?;
+    cfg.set_str("user.name", "Test User")?;
+    cfg.set_str("user.email", "test@example.com")?;
+    Ok(())
+}
+
+/// Test amend: create a commit, amend with new message, verify HEAD message updated
+#[test]
+fn test_amend_commit() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo_path = temp_dir.path();
+
+    let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
+
+    let file = repo_path.join("a.txt");
+    fs::write(&file, "hello")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "original message")?;
+
+    // Amend with new message
+    GitService::amend_commit(&repo, "amended summary", "amended body")?;
+
+    let head = GitService::get_head_commit(&repo)?;
+    assert!(head.message.starts_with("amended summary"));
+    assert!(head.message.contains("amended body"));
+
+    Ok(())
+}
+
+/// Test amend without description
+#[test]
+fn test_amend_commit_summary_only() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("b.txt");
+    fs::write(&file, "data")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "first")?;
+
+    GitService::amend_commit(&repo, "second", "")?;
+    let head = GitService::get_head_commit(&repo)?;
+    assert_eq!(head.message.trim(), "second");
+
+    Ok(())
+}
+
+/// Test create_branch: branch exists after creation
+#[test]
+fn test_create_branch() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("f.txt");
+    fs::write(&file, "data")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "init")?;
+
+    GitService::create_branch(&repo, "feature", false)?;
+
+    let branch = repo.find_branch("feature", git2::BranchType::Local)?;
+    assert!(!branch.is_head());
+
+    Ok(())
+}
+
+/// Test create_branch with checkout: HEAD moves to new branch
+#[test]
+fn test_create_branch_with_checkout() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("g.txt");
+    fs::write(&file, "data")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "init")?;
+
+    GitService::create_branch(&repo, "new-feature", true)?;
+
+    let head = repo.head()?;
+    let branch_name = head.shorthand().unwrap_or("");
+    assert_eq!(branch_name, "new-feature");
+
+    Ok(())
+}
+
+/// Test stash save and list
+#[test]
+fn test_stash_save_and_list() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let mut repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    // Initial commit
+    let file = temp_dir.path().join("x.txt");
+    fs::write(&file, "original")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "init")?;
+
+    // Dirty working tree
+    fs::write(&file, "modified")?;
+
+    GitService::stash_save(&mut repo, "my stash")?;
+
+    // Working tree should be clean after stash
+    let (unstaged, staged) = GitService::get_status(&repo)?;
+    assert!(unstaged.is_empty(), "expected clean working tree after stash");
+    assert!(staged.is_empty());
+
+    let stashes = GitService::stash_list(&mut repo)?;
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0].message.contains("my stash"));
+
+    Ok(())
+}
+
+/// Test stash pop: working tree is restored after pop
+#[test]
+fn test_stash_pop() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let mut repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("y.txt");
+    fs::write(&file, "original")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "init")?;
+
+    fs::write(&file, "modified")?;
+    GitService::stash_save(&mut repo, "pop test")?;
+
+    // Verify clean
+    let (u, _) = GitService::get_status(&repo)?;
+    assert!(u.is_empty());
+
+    // Pop
+    GitService::stash_pop(&mut repo, 0)?;
+
+    // Working tree should be dirty again
+    let (unstaged, _) = GitService::get_status(&repo)?;
+    assert!(!unstaged.is_empty(), "expected dirty working tree after pop");
+
+    let stashes = GitService::stash_list(&mut repo)?;
+    assert!(stashes.is_empty(), "stash list should be empty after pop");
+
+    Ok(())
+}
+
+/// Test stash drop: entry removed, working tree unchanged
+#[test]
+fn test_stash_drop() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let mut repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("z.txt");
+    fs::write(&file, "original")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "init")?;
+
+    fs::write(&file, "modified")?;
+    GitService::stash_save(&mut repo, "drop test")?;
+
+    GitService::stash_drop(&mut repo, 0)?;
+
+    let stashes = GitService::stash_list(&mut repo)?;
+    assert!(stashes.is_empty());
+
+    // Working tree was NOT restored (drop without apply)
+    let content = fs::read_to_string(&file)?;
+    assert_eq!(content, "original", "working tree should stay clean after drop");
+
+    Ok(())
+}
+
+/// Test multiple stashes: count and drop-by-index
+#[test]
+fn test_stash_multiple() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let mut repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("m.txt");
+    fs::write(&file, "v0")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "init")?;
+
+    for i in 1..=3usize {
+        fs::write(&file, format!("v{}", i))?;
+        GitService::stash_save(&mut repo, &format!("stash {}", i))?;
+    }
+
+    let stashes = GitService::stash_list(&mut repo)?;
+    assert_eq!(stashes.len(), 3);
+
+    // Drop stash at index 1 (middle)
+    GitService::stash_drop(&mut repo, 1)?;
+    let stashes = GitService::stash_list(&mut repo)?;
+    assert_eq!(stashes.len(), 2);
+
+    Ok(())
+}
+
+/// Test push and pull using a local bare repository as remote
+#[test]
+fn test_push_and_pull() -> Result<()> {
+    let bare_dir = TempDir::new()?;
+    let local_dir = TempDir::new()?;
+    let local2_dir = TempDir::new()?;
+
+    // Create bare remote — use three slashes so Windows paths like C:/ are valid
+    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    git2::Repository::init_bare(bare_dir.path())?;
+
+    // Set up local repo A, add remote, push initial commit
+    let repo_a = GitService::init_repository(local_dir.path())?;
+    setup_identity(&repo_a)?;
+    let file = local_dir.path().join("r.txt");
+    fs::write(&file, "hello remote")?;
+    GitService::stage_files(&repo_a, &[file])?;
+    GitService::create_commit(&repo_a, "initial")?;
+    repo_a.remote("origin", &bare_url)?;
+    GitService::push(&repo_a, "origin", "master")
+        .or_else(|_| GitService::push(&repo_a, "origin", "main"))?;
+
+    // Set up local repo B from a clone
+    let repo_b = git2::build::RepoBuilder::new().clone(&bare_url, local2_dir.path())?;
+    setup_identity(&repo_b)?;
+
+    // Pull in repo B (should be up-to-date or succeed)
+    let result = GitService::pull(&repo_b, "origin");
+    // Up-to-date is also success
+    assert!(result.is_ok(), "pull failed: {:?}", result);
+
+    Ok(())
+}
+
 /// Test file diff generation
 #[test]
 fn test_file_diff() -> Result<()> {

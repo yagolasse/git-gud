@@ -49,7 +49,10 @@ impl CommitPanel {
         ui.add_space(2.0);
 
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.amend, "Amend");
+            let checkbox_resp = ui.checkbox(&mut self.amend, "Amend");
+            if checkbox_resp.changed() && self.amend {
+                state.prefill_amend_message();
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let commit_enabled = if self.amend {
@@ -81,7 +84,17 @@ impl CommitPanel {
 
     fn create_commit(&mut self, state: &mut AppState) {
         if self.amend {
-            state.set_info("Amend not yet implemented".to_string());
+            let summary = state.ui_state.commit_summary.clone();
+            let description = state.ui_state.commit_description.clone();
+            match state.repository_state_mut().amend_commit(&summary, &description) {
+                Ok(()) => {
+                    state.set_info(format!("Commit amended: {}", summary));
+                    state.ui_state.clear_commit_message();
+                    state.ui_state.clear_file_selection();
+                    self.amend = false;
+                }
+                Err(e) => state.set_error(format!("Failed to amend commit: {}", e)),
+            }
             return;
         }
         let message = state.ui_state.commit_message();

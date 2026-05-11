@@ -45,11 +45,13 @@ impl ErrorDialog {
         self.visible
     }
 
-    /// Show the error dialog
-    pub fn show(&mut self, ctx: &egui::Context) {
+    /// Show the error dialog. Returns `true` if the user dismissed it this frame.
+    pub fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.visible {
-            return;
+            return false;
         }
+
+        let mut dismissed = false;
 
         egui::Window::new("Error")
             .collapsible(false)
@@ -59,10 +61,8 @@ impl ErrorDialog {
                 ui.label("An error occurred:");
                 ui.separator();
 
-                // Show error message
                 ui.label(&self.error_message);
 
-                // Show details toggle if error is long
                 if self.error_message.len() > 100 {
                     ui.checkbox(&mut self.show_details, "Show details");
 
@@ -78,14 +78,18 @@ impl ErrorDialog {
 
                 ui.add_space(10.0);
 
-                // OK button
                 ui.horizontal(|ui| {
                     ui.add_space(ui.available_width() - 50.0);
                     if ui.button("OK").clicked() {
-                        self.hide();
+                        dismissed = true;
                     }
                 });
             });
+
+        if dismissed {
+            self.hide();
+        }
+        dismissed
     }
 }
 
