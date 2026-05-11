@@ -197,8 +197,28 @@ impl AppState {
             repo_state.refresh()?;
             log::debug!("Repository refreshed");
         }
-
+        self.validate_file_selection();
         Ok(())
+    }
+
+    /// Ensure the selected file is still present in the staged/unstaged lists.
+    /// If not, auto-select the first available file or clear the selection.
+    pub fn validate_file_selection(&mut self) {
+        if let Some(repo_state) = &self.repository_state {
+            let selected = match &self.ui_state.selected_file {
+                Some(p) => p.clone(),
+                None => return,
+            };
+            let still_present = repo_state.staged_files.iter().any(|f| f.path == selected)
+                || repo_state.unstaged_files.iter().any(|f| f.path == selected);
+            if !still_present {
+                self.ui_state.selected_file = repo_state
+                    .staged_files
+                    .first()
+                    .or_else(|| repo_state.unstaged_files.first())
+                    .map(|f| f.path.clone());
+            }
+        }
     }
 
     /// Handle pending actions from UI
@@ -253,6 +273,7 @@ impl AppState {
                     }
                 }
             }
+            self.validate_file_selection();
         }
     }
 }

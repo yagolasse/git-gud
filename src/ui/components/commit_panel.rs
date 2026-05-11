@@ -35,18 +35,16 @@ impl CommitPanel {
         );
 
         let n = state.ui_state.commit_summary.len();
-        if n > 0 {
-            let (hint_text, hint_color) = if n <= 50 {
-                (format!("{}/50", n), p.text_tertiary)
-            } else if n <= 72 {
-                (format!("{}/72 — getting long", n), p.status_modified)
-            } else {
-                (format!("{} — over recommended limit", n), p.status_deleted)
-            };
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                ui.label(egui::RichText::new(hint_text).color(hint_color).small());
-            });
-        }
+        let (hint_text, hint_color) = if n <= 50 {
+            (format!("{}/50", n), p.text_tertiary)
+        } else if n <= 72 {
+            (format!("{}/72 — getting long", n), p.status_modified)
+        } else {
+            (format!("{} — over recommended limit", n), p.status_deleted)
+        };
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            ui.label(egui::RichText::new(hint_text).color(hint_color).small());
+        });
 
         ui.add_space(2.0);
 

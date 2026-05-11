@@ -39,6 +39,7 @@ impl FileList {
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show(ui, |ui| {
                 if !staged_files.is_empty() {
                     let unstage_all_clicked = Self::show_section_header(
@@ -131,13 +132,18 @@ impl FileList {
                 p.text_secondary,
             );
 
+            let title_font = egui::FontId::proportional(10.0);
+            let title_w = ui.fonts(|f| {
+                f.layout_no_wrap(title.to_string(), title_font.clone(), p.text_secondary).size().x
+            });
+
             let badge_font = egui::FontId::proportional(10.0);
             let badge_text = count.to_string();
-            let badge_galley =
-                ui.fonts(|f| f.layout_no_wrap(badge_text.clone(), badge_font.clone(), p.text_secondary));
-            let badge_w = badge_galley.size().x + 10.0;
+            let badge_text_w =
+                ui.fonts(|f| f.layout_no_wrap(badge_text.clone(), badge_font.clone(), p.text_secondary).size().x);
+            let badge_w = badge_text_w + 10.0;
             let badge_rect = egui::Rect::from_center_size(
-                egui::pos2(rect.min.x + 18.0 + badge_galley.size().x + badge_w / 2.0 + 6.0, y),
+                egui::pos2(rect.min.x + 22.0 + title_w + badge_w / 2.0, y),
                 egui::vec2(badge_w, 14.0),
             );
             ui.painter().rect_filled(badge_rect, 7.0, p.bg_tertiary);
@@ -196,17 +202,24 @@ impl FileList {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
 
+        let y = rect.center().y;
+        // Use a fixed icon slot on the right edge — same rect for both badge and action button
+        let icon_center = egui::pos2(rect.max.x - 15.0, y);
+        let btn_rect = egui::Rect::from_center_size(icon_center, egui::vec2(18.0, 18.0));
+        let btn_id = ui.id().with(&file.path).with("action");
+        let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
+
         if ui.is_rect_visible(rect) {
+            let hovered = response.hovered() || btn.hovered();
             let bg = if is_selected {
                 p.accent_sel_bg
-            } else if response.hovered() {
+            } else if hovered {
                 p.bg_secondary
             } else {
                 egui::Color32::TRANSPARENT
             };
             ui.painter().rect_filled(rect, 0.0, bg);
 
-            let y = rect.center().y;
             let (badge_letter, badge_color) = status_badge(&file.status, p);
 
             let dot_x = rect.min.x + 22.0;
@@ -227,9 +240,9 @@ impl FileList {
                 text_color,
             );
 
-            let badge_x = rect.max.x - 18.0;
+            let icon_left = icon_center.x - 9.0;
             let path_x = name_rect.max.x + 5.0;
-            if path_x < badge_x - 24.0 {
+            if path_x < icon_left - 4.0 {
                 if let Some(parent) = file.path.parent() {
                     let parent_str = parent.to_string_lossy();
                     if !parent_str.is_empty() && parent_str != "." {
@@ -244,11 +257,26 @@ impl FileList {
                 }
             }
 
-            if !response.hovered() && !is_selected {
-                let sq_rect = egui::Rect::from_center_size(
-                    egui::pos2(badge_x, y),
-                    egui::vec2(14.0, 14.0),
+            if hovered {
+                let action_char = if is_staged { "-" } else { "+" };
+                ui.painter().rect_filled(
+                    btn_rect,
+                    3.0,
+                    if btn.hovered() {
+                        p.bg_tertiary
+                    } else {
+                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 13)
+                    },
                 );
+                ui.painter().text(
+                    icon_center,
+                    egui::Align2::CENTER_CENTER,
+                    action_char,
+                    egui::FontId::proportional(13.0),
+                    p.text_secondary,
+                );
+            } else if !is_selected {
+                let sq_rect = egui::Rect::from_center_size(icon_center, egui::vec2(14.0, 14.0));
                 ui.painter().rect_filled(sq_rect, 3.0, badge_color);
                 ui.painter().text(
                     sq_rect.center(),
@@ -272,35 +300,8 @@ impl FileList {
             }
         });
 
-        let mut action_btn_clicked = false;
-        if response.hovered() {
-            let action_char = if is_staged { "-" } else { "+" };
-            let btn_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.max.x - 24.0, rect.min.y + 3.0),
-                egui::vec2(18.0, 18.0),
-            );
-            let btn_id = ui.id().with(&file.path).with("action");
-            let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
-
-            if ui.is_rect_visible(btn_rect) {
-                ui.painter().rect_filled(
-                    btn_rect,
-                    3.0,
-                    if btn.hovered() { p.bg_tertiary } else { egui::Color32::from_rgba_premultiplied(0, 0, 0, 13) },
-                );
-                ui.painter().text(
-                    btn_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    action_char,
-                    egui::FontId::proportional(13.0),
-                    p.text_secondary,
-                );
-            }
-            action_btn_clicked = btn.clicked();
-        }
-
-        let action = action_btn_clicked || action_from_menu.get();
-        (response.clicked() && !action_btn_clicked, action)
+        let action = btn.clicked() || action_from_menu.get();
+        (response.clicked() && !btn.clicked(), action)
     }
 
     fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {

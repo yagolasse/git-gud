@@ -28,15 +28,15 @@ impl BranchList {
         let p = crate::ui::colors::get(state.dark_mode);
 
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add_space(6.0);
-            let w = (ui.available_width() - 6.0).max(0.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut self.filter)
-                    .hint_text("Filter…")
-                    .desired_width(w),
-            );
-        });
+        egui::Frame::none()
+            .inner_margin(egui::Margin { left: 6.0, right: 6.0, top: 0.0, bottom: 0.0 })
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.filter)
+                        .hint_text("Filter…")
+                        .desired_width(f32::INFINITY),
+                );
+            });
         ui.add_space(4.0);
 
         if !state.has_repository() {

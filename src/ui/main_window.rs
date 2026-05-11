@@ -1,4 +1,4 @@
-use crate::state::{AppState, SharedAppState};
+use crate::state::{AppPrefs, AppState, SharedAppState};
 use crate::ui::{ErrorDialog, FileDialog, RecentRepos};
 use eframe::egui;
 use parking_lot::Mutex;
@@ -25,6 +25,7 @@ pub struct MainWindow {
     active_tab: ActiveTab,
     toolbar: crate::ui::Toolbar,
     dark_mode: bool,
+    prefs: AppPrefs,
 }
 
 impl MainWindow {
@@ -36,10 +37,20 @@ impl MainWindow {
         cc: &eframe::CreationContext<'_>,
         initial_path: Option<&std::path::Path>,
     ) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        let prefs = AppPrefs::load_default();
+
+        let dark_mode = prefs.dark_mode;
+        if dark_mode {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+        }
+
+        let state = Arc::new(Mutex::new(AppState::new()));
+        state.lock().dark_mode = dark_mode;
 
         let mut window = Self {
-            state: Arc::new(Mutex::new(AppState::new())),
+            state,
             branch_list: crate::ui::BranchList::new(),
             file_list: crate::ui::FileList::new(),
             diff_viewer: crate::ui::EnhancedDiffViewer::new(),
@@ -52,7 +63,8 @@ impl MainWindow {
             open_repo_path: ".".to_string(),
             active_tab: ActiveTab::Changes,
             toolbar: crate::ui::Toolbar::new(),
-            dark_mode: false,
+            dark_mode,
+            prefs,
         };
 
         if let Some(path) = initial_path {
@@ -62,6 +74,21 @@ impl MainWindow {
                 window.show_open_dialog = false;
                 window.open_repo_path = path.to_string_lossy().to_string();
                 window.recent_repos.add(&path_buf);
+            }
+        } else if let Some(last_repo) = window.prefs.last_repo.clone() {
+            if last_repo.exists() {
+                let loaded = {
+                    let mut state = window.state.lock();
+                    state.load_repository(last_repo.clone()).is_ok()
+                };
+                if loaded {
+                    window.show_open_dialog = false;
+                    window.open_repo_path = last_repo.to_string_lossy().to_string();
+                    window.recent_repos.add(&last_repo);
+                    if let Err(e) = window.file_watcher.start_watching(&last_repo) {
+                        log::error!("Failed to start file watcher on startup: {}", e);
+                    }
+                }
             }
         }
 
@@ -107,25 +134,6 @@ impl MainWindow {
                 self.state.lock().clear_command_log();
             }
         }
-
-        // Status bar — declared first so egui reserves it from the bottom
-        egui::TopBottomPanel::bottom("status_bar")
-            .frame(egui::Frame {
-                fill: p.bg_secondary,
-                inner_margin: egui::Margin::symmetric(8.0, 4.0),
-                stroke: egui::Stroke::new(0.5, p.border),
-                ..Default::default()
-            })
-            .show(ctx, |ui| {
-                let state = self.state.lock();
-                if let Some(msg) = &state.error_message {
-                    ui.colored_label(p.status_deleted, msg.as_str());
-                } else if let Some(msg) = &state.info_message {
-                    ui.colored_label(p.accent_success, msg.as_str());
-                } else {
-                    ui.label(" ");
-                }
-            });
 
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             let mut state = self.state.lock();
@@ -234,6 +242,16 @@ impl MainWindow {
     fn save_recent_repos(&self) {
         if let Err(e) = self.recent_repos.save_default() {
             log::error!("Failed to save recent repositories: {}", e);
+        }
+    }
+
+    fn save_prefs(&mut self) {
+        let state = self.state.lock();
+        self.prefs.dark_mode = state.dark_mode;
+        self.prefs.last_repo = state.repository_state.as_ref().map(|r| r.path.clone());
+        drop(state);
+        if let Err(e) = self.prefs.save_default() {
+            log::error!("Failed to save preferences: {}", e);
         }
     }
 
@@ -477,5 +495,6 @@ impl MainWindow {
 impl Drop for MainWindow {
     fn drop(&mut self) {
         self.save_recent_repos();
+        self.save_prefs();
     }
 }
