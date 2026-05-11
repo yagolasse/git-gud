@@ -87,6 +87,9 @@ egui's bundled fonts do not cover Dingbats (✓ ⚙), Spacing Modifier Letters (
 ### Pending Actions
 UI events that mutate state set `ui_state.pending_action` and return. `AppState::handle_pending_actions()` is called at the start of the next frame. This avoids borrow conflicts in immediate-mode rendering.
 
+### Network Operations (Pull / Push)
+Pull and push delegate to the system `git` binary via `std::process::Command`. This means the user's SSH config (`~/.ssh/config`), SSH agent, `known_hosts`, and credential helpers all work automatically — no libssh2/libgit2 credential callbacks needed. git2 is used exclusively for local operations (status, staging, commits, branching, diff).
+
 ### Component Pattern
 Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mut AppState)` method. Internal helpers are free functions that accept `&Palette` and specific data — no stored color state.
 
@@ -104,7 +107,7 @@ Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mu
 ```powershell
 rtk cargo check          # Fast type-check (no binary)
 rtk cargo build          # Full build
-rtk cargo test           # Run all tests (87 expected to pass)
+rtk cargo test           # Run all tests (96 expected to pass)
 rtk cargo clippy         # Lint
 ```
 
@@ -117,7 +120,7 @@ rtk cargo clippy         # Lint
 
 ### Always After Every Change
 1. `rtk cargo check` — must pass with zero errors
-2. `rtk cargo test` — all 87 tests must still pass
+2. `rtk cargo test` — all 96 tests must still pass
 3. Never run the GUI yourself — the user tests the UI
 
 ### Interface First
@@ -127,14 +130,17 @@ When adding a feature that touches multiple files, define the types/signatures i
 
 | Feature | Location | Notes |
 |---------|----------|-------|
-| Pull / Push | `toolbar.rs` | Buttons exist, show "not yet implemented" |
 | New Branch | `toolbar.rs` | Button exists, not wired |
 | Stash | `toolbar.rs` | Button exists, not wired |
 | Amend commit | `commit_panel.rs` | Checkbox exists, not implemented |
 | Create branch (+ button) | `branch_list.rs` | Shows "not yet implemented" |
-| Commit graph | `main_window.rs` History tab | Placeholder only |
 | Word-level diff | `enhanced_diff_viewer.rs` | `DiffDisplayMode::WordLevel` falls through to unified |
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
 | Settings dialog | toolbar gear icon | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
+| Push to upstream-less branch | `git_service.rs` `push()` | Needs `--set-upstream` / `-u` flag when no tracking branch exists |
+| Pull progress reporting | `toolbar.rs` | System git output not yet streamed; shows indeterminate spinner |
+| Fetch (without merge) | `toolbar.rs` | Button stub; `git fetch origin` via CLI |
+| SSH passphrase prompt | — | For passphrase-protected keys not in agent: intercept before spawning git |
+| Credential helper for HTTPS | — | `git credential fill` via subprocess handles this already |

@@ -4,7 +4,7 @@
 
 use crate::models;
 use anyhow::{Result, anyhow};
-use git2::{BranchType, Commit, DiffOptions, ErrorCode, FetchOptions, PushOptions, RemoteCallbacks, Repository, Status, StatusOptions};
+use git2::{BranchType, Commit, DiffOptions, ErrorCode, Repository, Status, StatusOptions};
 use std::path::{Path, PathBuf};
 
 /// Git service for performing Git operations
@@ -478,82 +478,52 @@ impl GitService {
         Ok(())
     }
 
-    /// Pull from a remote (fast-forward only)
+    /// Pull from a remote using the system git binary (fast-forward only).
+    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
     pub fn pull(repo: &Repository, remote_name: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?
+            .to_path_buf();
+
         let head = repo.head()?;
-        let branch_name = head.shorthand()
+        let branch = head.shorthand()
             .ok_or_else(|| anyhow!("No current branch"))?.to_string();
 
-        let mut remote = repo.find_remote(remote_name)
-            .map_err(|_| anyhow!("Remote '{}' not found", remote_name))?;
+        let out = std::process::Command::new("git")
+            .args(["pull", "--ff-only", remote_name, &branch])
+            .current_dir(&workdir)
+            .output()
+            .map_err(|e| anyhow!("Could not run git: {}", e))?;
 
-        let mut cbs = RemoteCallbacks::new();
-        Self::set_auth_callbacks(&mut cbs);
-        let mut fetch_opts = FetchOptions::new();
-        fetch_opts.remote_callbacks(cbs);
-        remote.fetch(&[&branch_name], Some(&mut fetch_opts), None)?;
-        drop(remote);
-
-        let remote_ref_name = format!("refs/remotes/{}/{}", remote_name, branch_name);
-        let remote_oid = if let Ok(r) = repo.find_reference(&remote_ref_name) {
-            r.target().ok_or_else(|| anyhow!("Remote tracking ref has no target"))?
+        if out.status.success() {
+            log::info!("Pull successful");
+            Ok(())
         } else {
-            repo.find_reference("FETCH_HEAD")?
-                .target()
-                .ok_or_else(|| anyhow!("FETCH_HEAD has no target"))?
-        };
-
-        let annotated = repo.find_annotated_commit(remote_oid)?;
-        let (analysis, _) = repo.merge_analysis(&[&annotated])?;
-
-        if analysis.is_up_to_date() {
-            log::info!("Already up to date");
-            return Ok(());
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(anyhow!("{}", stderr.trim()))
         }
-
-        if !analysis.is_fast_forward() {
-            return Err(anyhow!("Cannot pull: merge required (not a fast-forward)"));
-        }
-
-        let refname = format!("refs/heads/{}", branch_name);
-        let mut local_ref = repo.find_reference(&refname)?;
-        local_ref.set_target(remote_oid, "Fast-forward pull")?;
-        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
-        log::info!("Pull successful (fast-forward)");
-        Ok(())
     }
 
-    /// Push a branch to a remote
+    /// Push a branch to a remote using the system git binary.
+    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
     pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<()> {
-        let mut remote = repo.find_remote(remote_name)
-            .map_err(|_| anyhow!("Remote '{}' not found", remote_name))?;
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?
+            .to_path_buf();
 
-        let mut cbs = RemoteCallbacks::new();
-        Self::set_auth_callbacks(&mut cbs);
-        let mut push_opts = PushOptions::new();
-        push_opts.remote_callbacks(cbs);
-        let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
-        remote.push(&[&refspec], Some(&mut push_opts))
-            .map_err(|e| anyhow!("Push failed: {}", e))?;
-        log::info!("Push successful");
-        Ok(())
-    }
+        let out = std::process::Command::new("git")
+            .args(["push", remote_name, branch_name])
+            .current_dir(&workdir)
+            .output()
+            .map_err(|e| anyhow!("Could not run git: {}", e))?;
 
-    fn set_auth_callbacks(cbs: &mut RemoteCallbacks<'_>) {
-        cbs.credentials(|_url, username_from_url, _allowed_types| {
-            if let Some(username) = username_from_url {
-                if let Ok(cred) = git2::Cred::ssh_key_from_agent(username) {
-                    return Ok(cred);
-                }
-            }
-            let user = std::env::var("GIT_USER").unwrap_or_default();
-            let pass = std::env::var("GIT_PASS").unwrap_or_default();
-            if !user.is_empty() {
-                git2::Cred::userpass_plaintext(&user, &pass)
-            } else {
-                Err(git2::Error::from_str("No credentials configured"))
-            }
-        });
+        if out.status.success() {
+            log::info!("Push successful");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(anyhow!("{}", stderr.trim()))
+        }
     }
 
     /// Get recent commits via RevWalk (topological + time order)

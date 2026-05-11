@@ -206,7 +206,7 @@ impl FileList {
         // Use a fixed icon slot on the right edge — same rect for both badge and action button
         let icon_center = egui::pos2(rect.max.x - 15.0, y);
         let btn_rect = egui::Rect::from_center_size(icon_center, egui::vec2(18.0, 18.0));
-        let btn_id = ui.id().with(&file.path).with("action");
+        let btn_id = ui.id().with(&file.path).with(is_staged).with("action");
         let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
