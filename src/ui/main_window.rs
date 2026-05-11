@@ -1,7 +1,3 @@
-//! Main window for Git Gud application
-//!
-//! This module contains the main application window UI.
-
 use crate::state::{AppState, SharedAppState};
 use crate::ui::{ErrorDialog, FileDialog, RecentRepos};
 use eframe::egui;
@@ -14,60 +10,32 @@ enum ActiveTab {
     History,
 }
 
-/// Main application window
 pub struct MainWindow {
-    /// Shared application state
     state: SharedAppState,
-
-    /// Branch list component
     branch_list: crate::ui::BranchList,
-
-    /// Unified file list (staged + unstaged sections)
     file_list: crate::ui::FileList,
-
-    /// Enhanced diff viewer component
     diff_viewer: crate::ui::EnhancedDiffViewer,
-
-    /// Commit panel component
     commit_panel: crate::ui::CommitPanel,
-
-    /// Command log floating window
     command_log: crate::ui::CommandLog,
-
-    /// Error dialog component
     error_dialog: ErrorDialog,
-
-    /// Recent repositories
     recent_repos: RecentRepos,
-
-    /// File watcher service for auto-refresh
     file_watcher: crate::services::file_watcher_service::SharedFileWatcher,
-
-    /// Whether to show the repository open dialog
     show_open_dialog: bool,
-
-    /// Repository path for open dialog
     open_repo_path: String,
-
-    /// Active tab (Changes or History)
     active_tab: ActiveTab,
-
-    /// Toolbar component
     toolbar: crate::ui::Toolbar,
+    dark_mode: bool,
 }
 
 impl MainWindow {
-    /// Create a new main window
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::new_with_path(cc, None)
     }
 
-    /// Create a new main window with an optional initial repository path
     pub fn new_with_path(
         cc: &eframe::CreationContext<'_>,
         initial_path: Option<&std::path::Path>,
     ) -> Self {
-        // Set light mode
         cc.egui_ctx.set_visuals(egui::Visuals::light());
 
         let mut window = Self {
@@ -84,16 +52,15 @@ impl MainWindow {
             open_repo_path: ".".to_string(),
             active_tab: ActiveTab::Changes,
             toolbar: crate::ui::Toolbar::new(),
+            dark_mode: false,
         };
 
-        // Try to load initial repository if provided
         if let Some(path) = initial_path {
             let path_buf = path.to_path_buf();
             let mut state = window.state.lock();
             if state.load_repository(path_buf.clone()).is_ok() {
                 window.show_open_dialog = false;
                 window.open_repo_path = path.to_string_lossy().to_string();
-                // Add to recent repos
                 window.recent_repos.add(&path_buf);
             }
         }
@@ -101,23 +68,28 @@ impl MainWindow {
         window
     }
 
-    /// Show the main window
     pub fn show(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check for file changes and trigger auto-refresh
         self.check_file_changes();
 
-        // Handle pending actions from previous frame
         {
             let mut state = self.state.lock();
             state.handle_pending_actions();
         }
 
-        // Show repository open dialog if needed
+        // Sync dark mode and set egui visuals
+        self.dark_mode = self.state.lock().dark_mode;
+        if self.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+
+        let p = crate::ui::colors::get(self.dark_mode);
+
         if self.show_open_dialog {
             self.show_open_dialog(ctx);
         }
 
-        // Update error dialog if there's an error
         {
             let state = self.state.lock();
             if let Some(error) = &state.error_message {
@@ -127,10 +99,8 @@ impl MainWindow {
             }
         }
 
-        // Show error dialog
         self.error_dialog.show(ctx);
 
-        // Command log window (floating, toggled from View menu)
         {
             let entries = { self.state.lock().command_log.clone() };
             if self.command_log.show(ctx, &entries) {
@@ -138,73 +108,59 @@ impl MainWindow {
             }
         }
 
-        // Status bar — declared first so egui reserves it from the bottom.
+        // Status bar — declared first so egui reserves it from the bottom
         egui::TopBottomPanel::bottom("status_bar")
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(245, 245, 244),
+                fill: p.bg_secondary,
                 inner_margin: egui::Margin::symmetric(8.0, 4.0),
-                stroke: egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38)),
+                stroke: egui::Stroke::new(0.5, p.border),
                 ..Default::default()
             })
             .show(ctx, |ui| {
                 let state = self.state.lock();
                 if let Some(msg) = &state.error_message {
-                    ui.colored_label(egui::Color32::from_rgb(200, 50, 50), format!("\u{2717}  {msg}"));
+                    ui.colored_label(p.status_deleted, msg.as_str());
                 } else if let Some(msg) = &state.info_message {
-                    ui.colored_label(egui::Color32::from_rgb(60, 130, 60), format!("\u{2713}  {msg}"));
+                    ui.colored_label(p.accent_success, msg.as_str());
                 } else {
                     ui.label(" ");
                 }
             });
 
-        // Show menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             let mut state = self.state.lock();
 
             egui::menu::bar(ui, |ui| {
-                // File menu
                 ui.menu_button("File", |ui| {
-                    // Open Repository
                     if ui.button("Open Repository...").clicked() {
                         self.show_open_dialog = true;
                         ui.close_menu();
                     }
-
-                    // Close Repository (only enabled if repository is loaded)
                     if state.has_repository() {
                         if ui.button("Close Repository").clicked() {
                             state.repository_state = None;
                             state.ui_state.reset();
                             state.clear_error();
                             state.clear_info();
-
-                            // Stop file watcher
                             self.file_watcher.stop_watching();
                             log::info!("File watcher stopped");
-
                             ui.close_menu();
                         }
                     } else {
                         ui.add_enabled(false, egui::Button::new("Close Repository"));
                     }
-
                     ui.separator();
-
-                    // Exit
                     if ui.button("Exit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         ui.close_menu();
                     }
                 });
 
-                // Edit menu (placeholder for future)
                 ui.menu_button("Edit", |ui| {
                     ui.label("Edit features coming soon");
                 });
 
-                // Repository menu
                 ui.menu_button("Repository", |ui| {
-                    // Refresh repository (only enabled if repository is loaded)
                     if state.has_repository() {
                         if ui.button("Refresh").clicked() {
                             if let Err(e) = state.refresh_repository() {
@@ -217,16 +173,10 @@ impl MainWindow {
                     } else {
                         ui.add_enabled(false, egui::Button::new("Refresh"));
                     }
-
                     ui.separator();
-
-                    // Show in file explorer (only enabled if repository is loaded)
                     if state.has_repository() {
                         if ui.button("Show in File Explorer").clicked() {
-                            // TODO: Implement show in file explorer
-                            state.set_info(
-                                "Show in file explorer feature not yet implemented".to_string(),
-                            );
+                            state.set_info("Show in file explorer not yet implemented".to_string());
                             ui.close_menu();
                         }
                     } else {
@@ -234,25 +184,24 @@ impl MainWindow {
                     }
                 });
 
-                // View menu
                 ui.menu_button("View", |ui| {
-                    let label = if self.command_log.is_visible() {
-                        "Hide Command Log"
-                    } else {
-                        "Show Command Log"
-                    };
-                    if ui.button(label).clicked() {
+                    let log_label = if self.command_log.is_visible() { "Hide Command Log" } else { "Show Command Log" };
+                    if ui.button(log_label).clicked() {
                         self.command_log.toggle();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    let theme_label = if state.dark_mode { "Switch to Light Mode" } else { "Switch to Dark Mode" };
+                    if ui.button(theme_label).clicked() {
+                        state.toggle_dark_mode();
                         ui.close_menu();
                     }
                 });
 
-                // Help menu (placeholder for future)
                 ui.menu_button("Help", |ui| {
                     ui.label("Help content coming soon");
                 });
 
-                // Show current repository path if loaded
                 if let Some(repo_state) = &state.repository_state {
                     ui.add_space(10.0);
                     ui.label(format!("Repository: {}", repo_state.path.display()));
@@ -260,11 +209,10 @@ impl MainWindow {
             });
         });
 
-        // Toolbar — below menu bar, only when a repo is loaded
         if self.state.lock().has_repository() {
             egui::TopBottomPanel::top("toolbar")
                 .frame(egui::Frame {
-                    fill: egui::Color32::WHITE,
+                    fill: p.bg_primary,
                     inner_margin: egui::Margin::ZERO,
                     outer_margin: egui::Margin::ZERO,
                     ..Default::default()
@@ -275,28 +223,23 @@ impl MainWindow {
                 });
         }
 
-        // Show main UI if repository loaded, otherwise show empty state
         let has_repo = self.state.lock().has_repository();
         if has_repo {
             self.show_main_ui(ctx);
         } else if !self.show_open_dialog {
-            // Only show empty state if we're not showing the open dialog
             self.show_empty_state(ctx);
         }
     }
 
-    /// Save recent repositories to disk
     fn save_recent_repos(&self) {
         if let Err(e) = self.recent_repos.save_default() {
             log::error!("Failed to save recent repositories: {}", e);
         }
     }
 
-    /// Check for file changes and trigger refresh if needed
     fn check_file_changes(&mut self) {
         if self.file_watcher.is_watching() && self.file_watcher.should_refresh() {
             log::debug!("File changes detected, triggering refresh");
-
             let mut state = self.state.lock();
             if let Err(e) = state.refresh_repository() {
                 log::error!("Failed to refresh repository after file change: {}", e);
@@ -307,7 +250,6 @@ impl MainWindow {
         }
     }
 
-    /// Show the repository open dialog
     fn show_open_dialog(&mut self, ctx: &egui::Context) {
         use std::path::PathBuf;
 
@@ -319,11 +261,9 @@ impl MainWindow {
             .show(ctx, |ui| {
                 ui.label("Enter the path to a Git repository:");
 
-                // Recent repositories section
                 if !self.recent_repos.is_empty() {
                     ui.separator();
                     ui.label("Recent repositories:");
-
                     let recent_repos = self.recent_repos.get();
                     for repo_path in recent_repos {
                         let path_str = repo_path.to_string_lossy();
@@ -331,16 +271,13 @@ impl MainWindow {
                             self.open_repo_path = path_str.to_string();
                         }
                     }
-
                     ui.separator();
                 }
 
                 ui.horizontal(|ui| {
                     ui.label("Path:");
                     ui.text_edit_singleline(&mut self.open_repo_path);
-
                     if ui.button("Browse...").clicked() {
-                        // Open native file dialog
                         if let Some(path) = FileDialog::open_directory() {
                             self.open_repo_path = path.to_string_lossy().to_string();
                         }
@@ -351,20 +288,15 @@ impl MainWindow {
                     if ui.button("Cancel").clicked() {
                         self.show_open_dialog = false;
                     }
-
                     if ui.button("Open").clicked() {
                         let path = PathBuf::from(&self.open_repo_path);
                         let mut state = self.state.lock();
-
                         match state.load_repository(path.clone()) {
                             Ok(_) => {
                                 self.show_open_dialog = false;
                                 state.clear_error();
-                                // Add to recent repos and save
                                 self.recent_repos.add(&path);
                                 self.save_recent_repos();
-
-                                // Start file watcher for auto-refresh
                                 if let Err(e) = self.file_watcher.start_watching(&path) {
                                     log::error!("Failed to start file watcher: {}", e);
                                     state.set_error(format!("Auto-refresh disabled: {}", e));
@@ -373,7 +305,6 @@ impl MainWindow {
                                 }
                             }
                             Err(e) => {
-                                // Error is already set by load_repository
                                 log::error!("Failed to load repository: {}", e);
                             }
                         }
@@ -382,7 +313,6 @@ impl MainWindow {
             });
     }
 
-    /// Show empty state when no repository is loaded
     fn show_empty_state(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -390,7 +320,6 @@ impl MainWindow {
                 ui.add_space(20.0);
                 ui.label("No repository loaded");
                 ui.add_space(10.0);
-
                 if ui.button("Open Repository...").clicked() {
                     self.show_open_dialog = true;
                 }
@@ -398,8 +327,8 @@ impl MainWindow {
         });
     }
 
-    /// Show main UI: sidebar + tab bar spanning center+right + tabbed content
     fn show_main_ui(&mut self, ctx: &egui::Context) {
+        let p = crate::ui::colors::get(self.dark_mode);
         let panel_frame = egui::Frame {
             inner_margin: egui::Margin::ZERO,
             outer_margin: egui::Margin::ZERO,
@@ -408,14 +337,13 @@ impl MainWindow {
 
         const SIDEBAR_W: f32 = 186.0;
 
-        // Sidebar — fixed, declared first for z-order
         egui::SidePanel::left("left_panel")
             .resizable(true)
             .default_width(SIDEBAR_W)
             .width_range(SIDEBAR_W..=350.0)
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(245, 245, 244),
-                stroke: egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38)),
+                fill: p.bg_secondary,
+                stroke: egui::Stroke::new(0.5, p.border),
                 ..panel_frame
             })
             .show(ctx, |ui| {
@@ -423,10 +351,9 @@ impl MainWindow {
                 self.branch_list.show(ui, &mut state);
             });
 
-        // Everything else: tab bar + tab content
         egui::CentralPanel::default()
             .frame(egui::Frame {
-                fill: egui::Color32::from_rgb(245, 245, 244),
+                fill: p.bg_secondary,
                 ..panel_frame
             })
             .show(ctx, |ui| {
@@ -438,51 +365,39 @@ impl MainWindow {
             });
     }
 
-    /// Painter-based tab bar spanning the full center+right width
     fn show_tab_bar(&mut self, ui: &mut egui::Ui) {
+        let p = crate::ui::colors::get(self.dark_mode);
         const TAB_H: f32 = 32.0;
-        const TAB_BG: egui::Color32 = egui::Color32::from_rgb(245, 245, 244);
-        const BG_PRIMARY: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
-        const BG_TERTIARY: egui::Color32 = egui::Color32::from_rgb(235, 235, 234);
-        const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(26, 26, 24);
-        const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(95, 94, 90);
-        const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 38);
 
         let available_width = ui.available_width();
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(available_width, TAB_H), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, TAB_BG);
+            ui.painter().rect_filled(rect, 0.0, p.bg_secondary);
             ui.painter().hline(
                 rect.min.x..=rect.max.x,
                 rect.max.y - 0.5,
-                egui::Stroke::new(0.5, BORDER),
+                egui::Stroke::new(0.5, p.border),
             );
         }
 
         let font = egui::FontId::proportional(12.0);
         let mut x = rect.min.x;
 
-        for (label, tab) in [
-            ("Changes", ActiveTab::Changes),
-            ("History", ActiveTab::History),
-        ] {
-            let galley =
-                ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), TEXT_SECONDARY));
+        for (label, tab) in [("Changes", ActiveTab::Changes), ("History", ActiveTab::History)] {
+            let galley = ui.fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), p.text_secondary));
             let tab_w = galley.size().x + 28.0;
-            let tab_rect =
-                egui::Rect::from_min_size(egui::pos2(x, rect.min.y), egui::vec2(tab_w, TAB_H));
+            let tab_rect = egui::Rect::from_min_size(egui::pos2(x, rect.min.y), egui::vec2(tab_w, TAB_H));
             let tab_id = ui.id().with("tab_bar").with(label);
             let tab_resp = ui.interact(tab_rect, tab_id, egui::Sense::click());
-
             let active = self.active_tab == tab;
 
             if ui.is_rect_visible(tab_rect) {
                 let bg = if active {
-                    BG_PRIMARY
+                    p.bg_primary
                 } else if tab_resp.hovered() {
-                    BG_TERTIARY
+                    p.bg_tertiary
                 } else {
                     egui::Color32::TRANSPARENT
                 };
@@ -490,18 +405,8 @@ impl MainWindow {
                     ui.painter().rect_filled(tab_rect, 0.0, bg);
                 }
 
-                let text_color = if active || tab_resp.hovered() {
-                    TEXT_PRIMARY
-                } else {
-                    TEXT_SECONDARY
-                };
-                ui.painter().text(
-                    tab_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    font.clone(),
-                    text_color,
-                );
+                let text_color = if active || tab_resp.hovered() { p.text_primary } else { p.text_secondary };
+                ui.painter().text(tab_rect.center(), egui::Align2::CENTER_CENTER, label, font.clone(), text_color);
 
                 if active {
                     ui.painter().rect_filled(
@@ -510,38 +415,30 @@ impl MainWindow {
                             egui::vec2(tab_w, 2.0),
                         ),
                         0.0,
-                        TEXT_PRIMARY,
+                        p.text_primary,
                     );
                 }
             }
 
-            if tab_resp.clicked() {
-                self.active_tab = tab;
-            }
-
+            if tab_resp.clicked() { self.active_tab = tab; }
             x += tab_w;
         }
     }
 
-    /// Changes tab: file list panel on left, diff viewer on right
     fn show_changes_tab(&mut self, ui: &mut egui::Ui, panel_frame: egui::Frame) {
-        let border = egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(0, 0, 0, 38));
+        let p = crate::ui::colors::get(self.dark_mode);
+        let border = egui::Stroke::new(0.5, p.border);
 
-        // File list + commit panel on the left
         egui::SidePanel::left("file_list_panel")
             .resizable(true)
             .default_width(220.0)
             .width_range(140.0..=400.0)
-            .frame(egui::Frame {
-                fill: egui::Color32::WHITE,
-                stroke: border,
-                ..panel_frame
-            })
+            .frame(egui::Frame { fill: p.bg_primary, stroke: border, ..panel_frame })
             .show_inside(ui, |ui| {
                 egui::TopBottomPanel::bottom("commit_panel_bottom")
                     .resizable(false)
                     .frame(egui::Frame {
-                        fill: egui::Color32::WHITE,
+                        fill: p.bg_primary,
                         inner_margin: egui::Margin::symmetric(8.0, 6.0),
                         ..Default::default()
                     })
@@ -553,20 +450,16 @@ impl MainWindow {
                 self.file_list.show(ui, &mut state);
             });
 
-        // Diff viewer fills the rest
         egui::CentralPanel::default()
-            .frame(egui::Frame {
-                fill: egui::Color32::WHITE,
-                ..panel_frame
-            })
+            .frame(egui::Frame { fill: p.bg_primary, ..panel_frame })
             .show_inside(ui, |ui| {
                 let mut state = self.state.lock();
                 self.diff_viewer.show(ui, &mut state);
             });
     }
 
-    /// History tab: placeholder for the commit graph
     fn show_history_tab(&mut self, ui: &mut egui::Ui) {
+        let p = crate::ui::colors::get(self.dark_mode);
         let center = ui.available_rect_before_wrap().center();
         ui.allocate_space(ui.available_size());
         if ui.is_rect_visible(ui.max_rect()) {
@@ -575,7 +468,7 @@ impl MainWindow {
                 egui::Align2::CENTER_CENTER,
                 "Commit history coming soon",
                 egui::FontId::proportional(13.0),
-                egui::Color32::from_rgb(136, 135, 128),
+                p.text_tertiary,
             );
         }
     }
@@ -583,7 +476,6 @@ impl MainWindow {
 
 impl Drop for MainWindow {
     fn drop(&mut self) {
-        // Save recent repositories when the window is closed
         self.save_recent_repos();
     }
 }

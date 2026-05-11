@@ -1,13 +1,6 @@
 use crate::state::AppState;
 use eframe::egui;
 
-const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(136, 135, 128);
-const STATUS_MODIFIED: egui::Color32 = egui::Color32::from_rgb(226, 167, 75);
-const STATUS_DELETED: egui::Color32 = egui::Color32::from_rgb(241, 76, 76);
-const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(230, 241, 251);
-const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(24, 95, 165);
-const ACCENT_BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(7, 29, 50, 77);
-
 pub struct CommitPanel {
     amend: bool,
 }
@@ -18,15 +11,14 @@ impl CommitPanel {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        if !state.has_repository() {
-            return;
-        }
+        if !state.has_repository() { return; }
+
+        let p = crate::ui::colors::get(state.dark_mode);
 
         ui.separator();
 
         let staged_count = state.repository_state().staged_files.len();
 
-        // Subject line
         ui.add(
             egui::TextEdit::singleline(&mut state.ui_state.commit_summary)
                 .hint_text("Summary (required)")
@@ -35,7 +27,6 @@ impl CommitPanel {
 
         ui.add_space(2.0);
 
-        // Body textarea
         ui.add(
             egui::TextEdit::multiline(&mut state.ui_state.commit_description)
                 .hint_text("Description (optional)")
@@ -43,15 +34,14 @@ impl CommitPanel {
                 .desired_width(f32::INFINITY),
         );
 
-        // Character hint — right-aligned, only shown when summary is non-empty
         let n = state.ui_state.commit_summary.len();
         if n > 0 {
             let (hint_text, hint_color) = if n <= 50 {
-                (format!("{}/50", n), TEXT_TERTIARY)
+                (format!("{}/50", n), p.text_tertiary)
             } else if n <= 72 {
-                (format!("{}/72 — getting long", n), STATUS_MODIFIED)
+                (format!("{}/72 — getting long", n), p.status_modified)
             } else {
-                (format!("{} — over recommended limit", n), STATUS_DELETED)
+                (format!("{} — over recommended limit", n), p.status_deleted)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 ui.label(egui::RichText::new(hint_text).color(hint_color).small());
@@ -60,7 +50,6 @@ impl CommitPanel {
 
         ui.add_space(2.0);
 
-        // Footer: Amend checkbox + Commit button
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.amend, "Amend");
 
@@ -74,24 +63,16 @@ impl CommitPanel {
                 let btn_label = if self.amend {
                     "Amend commit".to_string()
                 } else if staged_count > 0 {
-                    format!(
-                        "Commit {} file{}",
-                        staged_count,
-                        if staged_count == 1 { "" } else { "s" }
-                    )
+                    format!("Commit {} file{}", staged_count, if staged_count == 1 { "" } else { "s" })
                 } else {
                     "Commit".to_string()
                 };
 
                 let btn = egui::Button::new(egui::RichText::new(&btn_label).color(
-                    if commit_enabled {
-                        ACCENT_TEXT
-                    } else {
-                        egui::Color32::from_rgb(150, 150, 155)
-                    },
+                    if commit_enabled { p.accent_text } else { p.text_tertiary },
                 ))
-                .fill(ACCENT_SEL_BG)
-                .stroke(egui::Stroke::new(0.5, ACCENT_BORDER));
+                .fill(p.accent_sel_bg)
+                .stroke(egui::Stroke::new(0.5, p.accent_border));
 
                 if ui.add_enabled(commit_enabled, btn).clicked() {
                     self.create_commit(state);
@@ -105,14 +86,10 @@ impl CommitPanel {
             state.set_info("Amend not yet implemented".to_string());
             return;
         }
-
         let message = state.ui_state.commit_message();
         match state.repository_state_mut().create_commit(&message) {
             Ok(()) => {
-                state.set_info(format!(
-                    "Commit created: {}",
-                    message.lines().next().unwrap_or("")
-                ));
+                state.set_info(format!("Commit created: {}", message.lines().next().unwrap_or("")));
                 state.ui_state.clear_commit_message();
                 state.ui_state.clear_file_selection();
             }
@@ -124,7 +101,5 @@ impl CommitPanel {
 }
 
 impl Default for CommitPanel {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }

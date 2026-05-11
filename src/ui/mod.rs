@@ -3,6 +3,7 @@
 //! This module contains the egui-based user interface components
 //! that make up the Git Gud GUI.
 
+pub mod colors;
 pub mod components;
 pub mod main_window;
 

@@ -44,6 +44,9 @@ pub struct AppState {
 
     /// Session-scoped log of git operations
     pub command_log: Vec<LogEntry>,
+
+    /// Whether the UI is in dark mode
+    pub dark_mode: bool,
 }
 
 /// Application configuration
@@ -93,7 +96,12 @@ impl AppState {
             error_message: None,
             info_message: None,
             command_log: Vec::new(),
+            dark_mode: false,
         }
+    }
+
+    pub fn toggle_dark_mode(&mut self) {
+        self.dark_mode = !self.dark_mode;
     }
 
     /// Check if a repository is loaded

@@ -28,6 +28,7 @@ impl CommandLog {
             return false;
         }
 
+        let mut open = true;
         let mut clear_requested = false;
 
         egui::Window::new("Command Log")
@@ -35,6 +36,7 @@ impl CommandLog {
             .default_height(280.0)
             .resizable(true)
             .collapsible(false)
+            .open(&mut open)
             .show(ctx, |ui| {
                 // Header row: count + Clear button
                 ui.horizontal(|ui| {
@@ -76,16 +78,11 @@ impl CommandLog {
                             });
                         }
                     });
-
-                ui.separator();
-
-                // Footer
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                    if ui.button("Close").clicked() {
-                        self.visible = false;
-                    }
-                });
             });
+
+        if !open {
+            self.visible = false;
+        }
 
         clear_requested
     }

@@ -1,15 +1,7 @@
 use crate::state::AppState;
+use crate::ui::colors::Palette;
 use eframe::egui;
 use std::cell::Cell;
-
-const BG_SECONDARY: egui::Color32 = egui::Color32::from_rgb(245, 245, 244);
-const BG_TERTIARY: egui::Color32 = egui::Color32::from_rgb(235, 235, 234);
-const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(95, 94, 90);
-const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(136, 135, 128);
-const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 38);
-const ACCENT_SEL_BG: egui::Color32 = egui::Color32::from_rgb(230, 241, 251);
-const ACCENT_TEXT: egui::Color32 = egui::Color32::from_rgb(24, 95, 165);
-const ACCENT_SUCCESS: egui::Color32 = egui::Color32::from_rgb(99, 153, 34);
 
 pub struct BranchList {
     filter: String,
@@ -33,8 +25,8 @@ impl BranchList {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
-        // Always-visible filter input at the top.
-        // desired_width fills remaining space; no trailing add_space to avoid overflow.
+        let p = crate::ui::colors::get(state.dark_mode);
+
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
@@ -51,7 +43,7 @@ impl BranchList {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("No repository loaded").color(TEXT_TERTIARY).small());
+                ui.label(egui::RichText::new("No repository loaded").color(p.text_tertiary).small());
             });
             return;
         }
@@ -63,9 +55,7 @@ impl BranchList {
             branches
                 .iter()
                 .filter(|b| !b.is_remote)
-                .filter(|b| {
-                    filter_lower.is_empty() || b.name.to_lowercase().contains(&filter_lower)
-                })
+                .filter(|b| filter_lower.is_empty() || b.name.to_lowercase().contains(&filter_lower))
                 .cloned()
                 .collect()
         };
@@ -75,9 +65,7 @@ impl BranchList {
             branches
                 .iter()
                 .filter(|b| b.is_remote)
-                .filter(|b| {
-                    filter_lower.is_empty() || b.name.to_lowercase().contains(&filter_lower)
-                })
+                .filter(|b| filter_lower.is_empty() || b.name.to_lowercase().contains(&filter_lower))
                 .cloned()
                 .collect()
         };
@@ -90,48 +78,35 @@ impl BranchList {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // BRANCHES
-                if Self::show_section_header(ui, "BRANCHES", &mut self.branches_open, true) {
+                if Self::show_section_header(ui, p, "BRANCHES", &mut self.branches_open, true) {
                     create_branch = true;
                 }
                 if self.branches_open {
                     for branch in &local_branches {
-                        let (sel, chk) =
-                            Self::show_branch_row(ui, &selected_branch, branch, 18.0);
-                        if sel {
-                            branch_to_select = Some(branch.name.clone());
-                        }
-                        if chk {
-                            branch_to_checkout = Some(branch.name.clone());
-                        }
+                        let (sel, chk) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0);
+                        if sel { branch_to_select = Some(branch.name.clone()); }
+                        if chk { branch_to_checkout = Some(branch.name.clone()); }
                     }
                     if local_branches.is_empty() {
-                        Self::show_empty_hint(ui, "No local branches", 22.0);
+                        Self::show_empty_hint(ui, p, "No local branches", 22.0);
                     }
                 }
 
-                // REMOTES
-                Self::show_section_header(ui, "REMOTES", &mut self.remotes_open, false);
+                Self::show_section_header(ui, p, "REMOTES", &mut self.remotes_open, false);
                 if self.remotes_open {
                     for branch in &remote_branches {
-                        let (sel, chk) =
-                            Self::show_branch_row(ui, &selected_branch, branch, 28.0);
-                        if sel {
-                            branch_to_select = Some(branch.name.clone());
-                        }
-                        if chk {
-                            branch_to_checkout = Some(branch.name.clone());
-                        }
+                        let (sel, chk) = Self::show_branch_row(ui, p, &selected_branch, branch, 28.0);
+                        if sel { branch_to_select = Some(branch.name.clone()); }
+                        if chk { branch_to_checkout = Some(branch.name.clone()); }
                     }
                     if remote_branches.is_empty() {
-                        Self::show_empty_hint(ui, "No remotes", 22.0);
+                        Self::show_empty_hint(ui, p, "No remotes", 22.0);
                     }
                 }
 
-                // Empty sections — placeholder for future data
-                Self::show_section_header(ui, "TAGS", &mut self.tags_open, false);
-                Self::show_section_header(ui, "STASHES", &mut self.stashes_open, false);
-                Self::show_section_header(ui, "SUBMODULES", &mut self.submodules_open, false);
+                Self::show_section_header(ui, p, "TAGS", &mut self.tags_open, false);
+                Self::show_section_header(ui, p, "STASHES", &mut self.stashes_open, false);
+                Self::show_section_header(ui, p, "SUBMODULES", &mut self.submodules_open, false);
             });
 
         if create_branch {
@@ -149,44 +124,34 @@ impl BranchList {
         }
     }
 
-    /// Draws a section header row using the painter directly (no child UI allocation).
-    /// Returns true if the "+" add button was clicked.
     fn show_section_header(
         ui: &mut egui::Ui,
+        p: &Palette,
         title: &str,
         open: &mut bool,
         show_add: bool,
     ) -> bool {
         let available_width = ui.available_width();
-        // Allocate exactly the row height — one allocation only, no child UI.
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
-            let bg = if response.hovered() { BG_TERTIARY } else { BG_SECONDARY };
+            let bg = if response.hovered() { p.bg_tertiary } else { p.bg_secondary };
             ui.painter().rect_filled(rect, 0.0, bg);
             ui.painter().hline(
                 rect.min.x..=rect.max.x,
                 rect.max.y - 0.5,
-                egui::Stroke::new(0.5, BORDER),
+                egui::Stroke::new(0.5, p.border),
             );
 
-            let font = egui::FontId::proportional(10.0);
             let y = rect.center().y;
-
-            ui.painter().text(
-                egui::pos2(rect.min.x + 6.0, y),
-                egui::Align2::LEFT_CENTER,
-                if *open { "\u{25BE}" } else { "\u{25B8}" },
-                font.clone(),
-                TEXT_TERTIARY,
-            );
+            paint_chevron(ui.painter(), egui::pos2(rect.min.x + 11.0, y), *open, p.text_tertiary);
             ui.painter().text(
                 egui::pos2(rect.min.x + 18.0, y),
                 egui::Align2::LEFT_CENTER,
                 title,
                 egui::FontId::proportional(10.0),
-                TEXT_SECONDARY,
+                p.text_secondary,
             );
         }
 
@@ -205,41 +170,39 @@ impl BranchList {
 
             if ui.is_rect_visible(btn_rect) {
                 if btn.hovered() {
-                    ui.painter().rect_filled(btn_rect, 3.0, BG_TERTIARY);
+                    ui.painter().rect_filled(btn_rect, 3.0, p.bg_tertiary);
                 }
                 ui.painter().text(
                     btn_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "+",
                     egui::FontId::proportional(13.0),
-                    TEXT_SECONDARY,
+                    p.text_secondary,
                 );
             }
-
             add_clicked = btn.clicked();
         }
 
         add_clicked
     }
 
-    /// Draws a single branch row using the painter directly. Returns `(selected, checkout)`.
     fn show_branch_row(
         ui: &mut egui::Ui,
+        p: &Palette,
         selected_branch: &Option<String>,
         branch: &crate::models::Branch,
         indent: f32,
     ) -> (bool, bool) {
         let is_selected = selected_branch.as_ref() == Some(&branch.name);
         let available_width = ui.available_width();
-        // One allocation for the whole row.
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
             let bg = if is_selected {
-                ACCENT_SEL_BG
+                p.accent_sel_bg
             } else if response.hovered() {
-                BG_TERTIARY
+                p.bg_tertiary
             } else {
                 egui::Color32::TRANSPARENT
             };
@@ -250,18 +213,11 @@ impl BranchList {
             let mut x = rect.min.x + indent;
 
             if branch.is_current {
-                let check_rect = ui.painter().text(
-                    egui::pos2(x, y),
-                    egui::Align2::LEFT_CENTER,
-                    "\u{2713}",
-                    font.clone(),
-                    ACCENT_SUCCESS,
-                );
-                x = check_rect.max.x + 4.0;
+                paint_check(ui.painter(), egui::pos2(x + 5.0, y), p.accent_success);
+                x += 14.0;
             }
 
-            let text_color = if is_selected { ACCENT_TEXT } else { TEXT_SECONDARY };
-
+            let text_color = if is_selected { p.accent_text } else { p.text_secondary };
             ui.painter().text(
                 egui::pos2(x, y),
                 egui::Align2::LEFT_CENTER,
@@ -283,15 +239,14 @@ impl BranchList {
             }
         });
 
-        let checkout =
-            (response.double_clicked() || checkout_from_menu.get()) && !branch.is_current;
+        let checkout = (response.double_clicked() || checkout_from_menu.get()) && !branch.is_current;
         (response.clicked(), checkout)
     }
 
-    fn show_empty_hint(ui: &mut egui::Ui, text: &str, indent: f32) {
+    fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {
         ui.horizontal(|ui| {
             ui.add_space(indent);
-            ui.label(egui::RichText::new(text).color(TEXT_TERTIARY).small());
+            ui.label(egui::RichText::new(text).color(p.text_tertiary).small());
         });
     }
 }
@@ -300,6 +255,35 @@ impl Default for BranchList {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn paint_chevron(painter: &egui::Painter, center: egui::Pos2, open: bool, color: egui::Color32) {
+    let points = if open {
+        vec![
+            egui::pos2(center.x - 4.0, center.y - 2.5),
+            egui::pos2(center.x + 4.0, center.y - 2.5),
+            egui::pos2(center.x, center.y + 2.5),
+        ]
+    } else {
+        vec![
+            egui::pos2(center.x - 2.5, center.y - 4.0),
+            egui::pos2(center.x + 2.5, center.y),
+            egui::pos2(center.x - 2.5, center.y + 4.0),
+        ]
+    };
+    painter.add(egui::Shape::convex_polygon(points, color, egui::Stroke::NONE));
+}
+
+fn paint_check(painter: &egui::Painter, center: egui::Pos2, color: egui::Color32) {
+    let stroke = egui::Stroke::new(1.5, color);
+    painter.line_segment(
+        [egui::pos2(center.x - 4.0, center.y), egui::pos2(center.x - 1.0, center.y + 3.0)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(center.x - 1.0, center.y + 3.0), egui::pos2(center.x + 4.0, center.y - 3.0)],
+        stroke,
+    );
 }
 
 #[cfg(test)]
