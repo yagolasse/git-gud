@@ -5,6 +5,7 @@
 
 mod branch_list;
 mod command_log;
+mod commit_graph;
 mod commit_panel;
 mod enhanced_diff_viewer;
 mod error_dialog;
@@ -16,6 +17,7 @@ mod virtual_scroll;
 
 pub use branch_list::BranchList;
 pub use command_log::CommandLog;
+pub use commit_graph::CommitGraph;
 pub use commit_panel::CommitPanel;
 pub use enhanced_diff_viewer::EnhancedDiffViewer;
 pub use error_dialog::ErrorDialog;

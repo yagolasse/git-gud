@@ -279,26 +279,29 @@ impl EnhancedDiffViewer {
 
         let (bg, gutter_bg, text_color) = row_colors(&line.change_type, p);
 
+        // Painter clipped to this row to prevent text from bleeding into adjacent columns
+        let painter = ui.painter().with_clip_rect(rect);
+
         if bg != egui::Color32::TRANSPARENT {
-            ui.painter().rect_filled(rect, 0.0, bg);
+            painter.rect_filled(rect, 0.0, bg);
         }
         if gutter_bg != egui::Color32::TRANSPARENT {
             let gutter_rect = egui::Rect::from_min_size(rect.min, egui::vec2(GUTTER_TOTAL, ROW_HEIGHT));
-            ui.painter().rect_filled(gutter_rect, 0.0, gutter_bg);
+            painter.rect_filled(gutter_rect, 0.0, gutter_bg);
         }
 
         let y = rect.center().y;
         let mono = egui::FontId::monospace(11.0);
 
         if let Some(n) = line.left_line_num {
-            ui.painter().text(
+            painter.text(
                 egui::pos2(rect.min.x + GUTTER_OLD - 2.0, y),
                 egui::Align2::RIGHT_CENTER,
                 n.to_string(), mono.clone(), p.text_tertiary,
             );
         }
         if let Some(n) = line.right_line_num {
-            ui.painter().text(
+            painter.text(
                 egui::pos2(rect.min.x + GUTTER_OLD + GUTTER_NEW - 2.0, y),
                 egui::Align2::RIGHT_CENTER,
                 n.to_string(), mono.clone(), p.text_tertiary,
@@ -310,14 +313,14 @@ impl EnhancedDiffViewer {
                 LineChangeType::Removed => p.diff_rem_text,
                 _                       => p.text_tertiary,
             };
-            ui.painter().text(
+            painter.text(
                 egui::pos2(rect.min.x + GUTTER_OLD + GUTTER_NEW + GUTTER_PFX / 2.0, y),
                 egui::Align2::CENTER_CENTER,
                 line.prefix.to_string(), mono.clone(), pfx_color,
             );
         }
         if !line.content.is_empty() {
-            ui.painter().text(
+            painter.text(
                 egui::pos2(rect.min.x + GUTTER_TOTAL + 2.0, y),
                 egui::Align2::LEFT_CENTER,
                 &line.content, mono, text_color,
