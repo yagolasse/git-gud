@@ -10,12 +10,21 @@ A native desktop Git GUI built with Rust. Focuses on the everyday staging-and-co
 - **Pull / Push** — fetch and push via the toolbar; uses the system `git` binary so SSH keys, agents, and credential helpers work out of the box
 - **Commit history graph** — lane-based DAG in the History tab with branch labels, relative timestamps, and hover-to-read full message
 - **Diff viewer** — unified and side-by-side modes, syntax highlighting via syntect
-- **Branch list** — local branches, remotes, checkout on double-click, filterable
+- **Branch list** — local branches, remotes grouped by remote name, checkout on double-click, filterable
+- **Tags** — list tags, create annotated tags, push tags to origin
 - **Stash** — list, apply, and drop stash entries
 - **Auto-refresh** — file watcher detects external changes and refreshes the working tree automatically
 - **Session command log** — floating window (View → Show Command Log) capturing every operation with timestamp and result
 - **Light / dark mode** — toggle from the View menu, persisted across restarts
 - **Recent repositories** — reopens the last-used repository on startup
+
+## Screenshots
+
+### Diff View
+![Diff view](screenshots/diff-view.PNG)
+
+### Commit Graph
+![Commit graph](screenshots/graph-view.PNG)
 
 ## Requirements
 
@@ -44,7 +53,7 @@ cargo run -- /path/to/repo
 
 ```powershell
 cargo check       # fast type-check
-cargo test        # 96 tests
+cargo test        # 101 tests
 cargo clippy      # lint
 ```
 
