@@ -129,13 +129,13 @@ impl GitService {
         log::info!("Getting branches");
 
         let mut branches = Vec::new();
-        let local_branches = repo.branches(Some(BranchType::Local))?;
+        let all_branches = repo.branches(None)?;
         let current_branch = repo
             .head()
             .ok()
             .and_then(|r| r.shorthand().map(|s| s.to_string()));
 
-        for branch_result in local_branches {
+        for branch_result in all_branches {
             let (branch, branch_type) = branch_result?;
             let name = branch.name()?.unwrap_or("").to_string();
             let is_current = current_branch.as_ref().map_or(false, |cb| cb == &name);
@@ -167,6 +167,34 @@ impl GitService {
 
         log::debug!("Found {} branches", branches.len());
         Ok(branches)
+    }
+
+    /// Get list of tag names
+    pub fn get_tags(repo: &Repository) -> Result<Vec<String>> {
+        log::info!("Getting tags");
+
+        let tag_names = repo.tag_names(None)?;
+        let tags: Vec<String> = tag_names
+            .iter()
+            .filter_map(|n| n.map(String::from))
+            .collect();
+
+        log::debug!("Found {} tags", tags.len());
+        Ok(tags)
+    }
+
+    /// Create an annotated tag at HEAD
+    pub fn create_tag(repo: &Repository, name: &str, message: &str) -> Result<()> {
+        log::info!("Creating tag: {}", name);
+
+        let head = repo.head()?;
+        let target = head.peel_to_commit()?.into_object();
+        let sig = repo.signature()?;
+
+        repo.tag(name, &target, &sig, message, false)?;
+
+        log::info!("Tag '{}' created", name);
+        Ok(())
     }
 
     /// Get HEAD commit
@@ -519,6 +547,29 @@ impl GitService {
 
         if out.status.success() {
             log::info!("Push successful");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(anyhow!("{}", stderr.trim()))
+        }
+    }
+
+    /// Push a tag to a remote using the system git binary.
+    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
+    pub fn push_tag(repo: &Repository, remote_name: &str, tag_name: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?
+            .to_path_buf();
+
+        let refspec = format!("refs/tags/{}", tag_name);
+        let out = std::process::Command::new("git")
+            .args(["push", remote_name, &refspec])
+            .current_dir(&workdir)
+            .output()
+            .map_err(|e| anyhow!("Could not run git: {}", e))?;
+
+        if out.status.success() {
+            log::info!("Tag '{}' pushed to {}", tag_name, remote_name);
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&out.stderr);

@@ -2,6 +2,7 @@ use crate::state::AppState;
 use crate::ui::colors::Palette;
 use eframe::egui;
 use std::cell::Cell;
+use std::collections::HashMap;
 
 pub struct BranchList {
     filter: String,
@@ -10,6 +11,7 @@ pub struct BranchList {
     tags_open: bool,
     stashes_open: bool,
     submodules_open: bool,
+    remote_sections: HashMap<String, bool>,
 }
 
 impl BranchList {
@@ -21,6 +23,7 @@ impl BranchList {
             tags_open: false,
             stashes_open: false,
             submodules_open: false,
+            remote_sections: HashMap::new(),
         }
     }
 
@@ -71,13 +74,16 @@ impl BranchList {
         };
 
         let stashes: Vec<crate::models::StashEntry> = state.repository_state().stashes.clone();
+        let tags: Vec<String> = state.repository_state().tags.clone();
         let selected_branch = state.ui_state.selected_branch.clone();
         let mut branch_to_select: Option<String> = None;
         let mut branch_to_checkout: Option<String> = None;
         let mut branch_to_delete: Option<String> = None;
         let mut create_branch = false;
+        let mut create_tag = false;
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
+        let mut tag_to_push: Option<String> = None;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -99,17 +105,54 @@ impl BranchList {
 
                 Self::show_section_header(ui, p, "REMOTES", &mut self.remotes_open, false);
                 if self.remotes_open {
+                    let mut remote_groups: std::collections::BTreeMap<&str, Vec<&crate::models::Branch>> =
+                        std::collections::BTreeMap::new();
                     for branch in &remote_branches {
-                        let (sel, chk, _del) = Self::show_branch_row(ui, p, &selected_branch, branch, 28.0);
-                        if sel { branch_to_select = Some(branch.name.clone()); }
-                        if chk { branch_to_checkout = Some(branch.name.clone()); }
+                        if let Some((remote, _rest)) = branch.name.split_once('/') {
+                            remote_groups.entry(remote).or_default().push(branch);
+                        }
                     }
-                    if remote_branches.is_empty() {
-                        Self::show_empty_hint(ui, p, "No remotes", 22.0);
+                    if remote_groups.is_empty() {
+                        Self::show_empty_hint(ui, p, "No remote branches", 22.0);
+                    } else {
+                        for (remote_name, branches) in &remote_groups {
+                            let open = self
+                                .remote_sections
+                                .entry(remote_name.to_string())
+                                .or_insert(true);
+                            let indent = 28.0;
+                            Self::show_remote_header(ui, p, remote_name, open, indent);
+                            if *open {
+                                for branch in branches {
+                                    let (sel, chk, _del) =
+                                        Self::show_branch_row(ui, p, &selected_branch, branch, indent + 12.0);
+                                    if sel {
+                                        branch_to_select = Some(branch.name.clone());
+                                    }
+                                    if chk {
+                                        branch_to_checkout = Some(branch.name.clone());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
-                Self::show_section_header(ui, p, "TAGS", &mut self.tags_open, false);
+                if Self::show_section_header(ui, p, "TAGS", &mut self.tags_open, true) {
+                    create_tag = true;
+                }
+                if self.tags_open {
+                    if tags.is_empty() {
+                        Self::show_empty_hint(ui, p, "No tags", 22.0);
+                    } else {
+                        for tag in &tags {
+                            let push = Self::show_tag_row(ui, p, tag, 18.0);
+                            if push {
+                                tag_to_push = Some(tag.clone());
+                            }
+                        }
+                    }
+                }
 
                 Self::show_section_header(ui, p, "STASHES", &mut self.stashes_open, false);
                 if self.stashes_open {
@@ -130,6 +173,12 @@ impl BranchList {
 
         if create_branch {
             state.ui_state.show_create_branch_dialog = true;
+        }
+        if create_tag {
+            state.ui_state.show_create_tag_dialog = true;
+        }
+        if let Some(name) = tag_to_push {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::PushTag(name));
         }
         if let Some(name) = branch_to_select {
             state.ui_state.select_branch(name);
@@ -205,6 +254,64 @@ impl BranchList {
                 state.ui_state.new_branch_name.clear();
             }
         }
+
+        // Create tag dialog
+        if state.ui_state.show_create_tag_dialog {
+            let ctx = ui.ctx().clone();
+            let mut do_create = false;
+            let mut do_cancel = false;
+            egui::Window::new("Create Tag")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label("Tag name:");
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut state.ui_state.new_tag_name)
+                            .desired_width(240.0),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        do_create = true;
+                    }
+                    ui.add_space(4.0);
+                    ui.label("Message (optional):");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut state.ui_state.new_tag_message)
+                            .desired_rows(3)
+                            .desired_width(240.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let name_ok = !state.ui_state.new_tag_name.trim().is_empty();
+                        if ui.add_enabled(name_ok, egui::Button::new("Create")).clicked() {
+                            do_create = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            do_cancel = true;
+                        }
+                    });
+                });
+            if do_create && !state.ui_state.new_tag_name.trim().is_empty() {
+                let name = state.ui_state.new_tag_name.trim().to_string();
+                let message = if state.ui_state.new_tag_message.trim().is_empty() {
+                    name.clone()
+                } else {
+                    state.ui_state.new_tag_message.trim().to_string()
+                };
+                state.ui_state.show_create_tag_dialog = false;
+                state.ui_state.new_tag_name.clear();
+                state.ui_state.new_tag_message.clear();
+                match state.repository_state_mut().create_tag(&name, &message) {
+                    Ok(()) => state.set_info(format!("Tag '{}' created", name)),
+                    Err(e) => state.set_error(format!("Failed to create tag: {}", e)),
+                }
+            }
+            if do_cancel {
+                state.ui_state.show_create_tag_dialog = false;
+                state.ui_state.new_tag_name.clear();
+                state.ui_state.new_tag_message.clear();
+            }
+        }
     }
 
     fn show_section_header(
@@ -267,6 +374,74 @@ impl BranchList {
         }
 
         add_clicked
+    }
+
+    fn show_remote_header(
+        ui: &mut egui::Ui,
+        p: &Palette,
+        name: &str,
+        open: &mut bool,
+        indent: f32,
+    ) {
+        let available_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(available_width, 22.0), egui::Sense::click());
+
+        if ui.is_rect_visible(rect) {
+            let bg = if response.hovered() { p.bg_tertiary } else { egui::Color32::TRANSPARENT };
+            ui.painter().rect_filled(rect, 0.0, bg);
+
+            let y = rect.center().y;
+            paint_chevron(ui.painter(), egui::pos2(rect.min.x + indent - 6.0, y), *open, p.text_tertiary);
+            ui.painter().text(
+                egui::pos2(rect.min.x + indent + 4.0, y),
+                egui::Align2::LEFT_CENTER,
+                name,
+                egui::FontId::proportional(10.5),
+                p.text_secondary,
+            );
+        }
+
+        if response.clicked() {
+            *open = !*open;
+        }
+    }
+
+    fn show_tag_row(ui: &mut egui::Ui, p: &Palette, tag: &str, indent: f32) -> bool {
+        let available_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
+
+        if ui.is_rect_visible(rect) {
+            let bg = if response.hovered() { p.bg_tertiary } else { egui::Color32::TRANSPARENT };
+            ui.painter().rect_filled(rect, 0.0, bg);
+
+            ui.painter().text(
+                egui::pos2(rect.min.x + indent, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                tag,
+                egui::FontId::proportional(11.0),
+                p.text_secondary,
+            );
+        }
+
+        let push_clicked = Cell::new(false);
+        response.context_menu(|ui| {
+            if ui.button("Copy name").clicked() {
+                ui.output_mut(|o| o.copied_text = tag.to_string());
+                ui.close_menu();
+            }
+            if ui.button("Push to origin").clicked() {
+                push_clicked.set(true);
+                ui.close_menu();
+            }
+        });
+
+        if response.clicked() {
+            ui.output_mut(|o| o.copied_text = tag.to_string());
+        }
+
+        push_clicked.get()
     }
 
     fn show_branch_row(
@@ -464,5 +639,6 @@ mod tests {
         assert!(!list.tags_open);
         assert!(!list.stashes_open);
         assert!(!list.submodules_open);
+        assert!(list.remote_sections.is_empty());
     }
 }

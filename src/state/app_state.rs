@@ -297,6 +297,12 @@ impl AppState {
                         Err(e) => self.set_error(format!("Push failed: {}", e)),
                     }
                 }
+                super::ui_state::PendingAction::PushTag(tag_name) => {
+                    match self.repository_state_mut().push_tag("origin", &tag_name) {
+                        Ok(()) => self.set_info(format!("Tag '{}' pushed to origin", tag_name)),
+                        Err(e) => self.set_error(format!("Failed to push tag '{}': {}", tag_name, e)),
+                    }
+                }
             }
             self.validate_file_selection();
         }

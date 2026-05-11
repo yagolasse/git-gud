@@ -664,3 +664,110 @@ fn test_file_diff() -> Result<()> {
 
     Ok(())
 }
+
+/// Test that get_branches includes remote branches after setting up a remote
+#[test]
+fn test_get_branches_includes_remotes() -> Result<()> {
+    let local_dir = TempDir::new()?;
+    let bare_dir = TempDir::new()?;
+
+    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    git2::Repository::init_bare(bare_dir.path())?;
+
+    let repo = GitService::init_repository(local_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = local_dir.path().join("f.txt");
+    fs::write(&file, "hello")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "init")?;
+
+    repo.remote("origin", &bare_url)?;
+    let head = repo.head()?;
+    let branch = head.shorthand().unwrap_or("main");
+    GitService::push(&repo, "origin", branch)?;
+
+    let branches = GitService::get_branches(&repo)?;
+    assert!(
+        branches.iter().any(|b| b.is_remote),
+        "expected at least one remote branch"
+    );
+
+    Ok(())
+}
+
+/// Test that get_tags returns tag names
+#[test]
+fn test_get_tags_empty_and_populated() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("t.txt");
+    fs::write(&file, "tagged")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "init")?;
+
+    let tags = GitService::get_tags(&repo)?;
+    assert!(tags.is_empty());
+
+    let head = repo.head()?.peel_to_commit()?.id();
+    repo.tag("v1.0", &repo.find_object(head, None)?, &repo.signature()?, "first tag", false)?;
+    repo.tag("v2.0", &repo.find_object(head, None)?, &repo.signature()?, "second tag", false)?;
+    repo.tag("lightweight", &repo.find_object(head, None)?, &repo.signature()?, "", false)?;
+
+    let tags = GitService::get_tags(&repo)?;
+    assert_eq!(tags.len(), 3);
+    assert!(tags.contains(&"v1.0".to_string()));
+    assert!(tags.contains(&"v2.0".to_string()));
+    assert!(tags.contains(&"lightweight".to_string()));
+
+    Ok(())
+}
+
+/// Test creating a tag via GitService and verifying it is listed
+#[test]
+fn test_create_tag() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("c.txt");
+    fs::write(&file, "tag test")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "commit for tag")?;
+
+    GitService::create_tag(&repo, "release-1.0", "First release")?;
+
+    let tags = GitService::get_tags(&repo)?;
+    assert!(tags.contains(&"release-1.0".to_string()));
+
+    Ok(())
+}
+
+/// Test pushing a tag to a remote
+#[test]
+fn test_push_tag() -> Result<()> {
+    let local_dir = TempDir::new()?;
+    let bare_dir = TempDir::new()?;
+
+    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    git2::Repository::init_bare(bare_dir.path())?;
+
+    let repo = GitService::init_repository(local_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = local_dir.path().join("p.txt");
+    fs::write(&file, "push tag test")?;
+    GitService::stage_files(&repo, &[file])?;
+    GitService::create_commit(&repo, "init")?;
+
+    repo.remote("origin", &bare_url)?;
+    let branch = repo.head()?.shorthand().unwrap_or("main").to_string();
+    GitService::push(&repo, "origin", &branch)?;
+
+    GitService::create_tag(&repo, "v1.0", "version 1.0")?;
+    GitService::push_tag(&repo, "origin", "v1.0")?;
+
+    Ok(())
+}

@@ -11,6 +11,7 @@ pub enum PendingAction {
     CreateCommit(String),
     Pull,
     Push,
+    PushTag(String),
 }
 
 /// UI-specific state
@@ -48,6 +49,11 @@ pub struct UIState {
     /// Stash-save dialog visibility and input
     pub show_stash_save_dialog: bool,
     pub stash_message: String,
+
+    /// Create-tag dialog visibility and input
+    pub show_create_tag_dialog: bool,
+    pub new_tag_name: String,
+    pub new_tag_message: String,
 }
 
 impl UIState {
@@ -68,6 +74,9 @@ impl UIState {
             new_branch_checkout: true,
             show_stash_save_dialog: false,
             stash_message: String::new(),
+            show_create_tag_dialog: false,
+            new_tag_name: String::new(),
+            new_tag_message: String::new(),
         }
     }
 

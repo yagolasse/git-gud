@@ -37,6 +37,9 @@ pub struct RepositoryState {
     /// Stash entries
     pub stashes: Vec<models::StashEntry>,
 
+    /// Tag names
+    pub tags: Vec<String>,
+
     /// Recent commits (up to 500)
     pub commits: Vec<models::Commit>,
 }
@@ -70,6 +73,7 @@ impl RepositoryState {
             head_commit: None,
             remotes: Vec::new(),
             stashes: Vec::new(),
+            tags: Vec::new(),
             commits: Vec::new(),
         };
 
@@ -97,6 +101,9 @@ impl RepositoryState {
 
         // Load stashes
         self.stashes = services::GitService::stash_list(&mut self.repository).unwrap_or_default();
+
+        // Load tags
+        self.tags = services::GitService::get_tags(&self.repository).unwrap_or_default();
 
         // Load recent commits
         self.commits = services::GitService::get_commits(&self.repository, 500).unwrap_or_default();
@@ -208,6 +215,18 @@ impl RepositoryState {
         services::GitService::create_branch(&self.repository, name, checkout)?;
         self.refresh()?;
         Ok(())
+    }
+
+    /// Create an annotated tag at HEAD
+    pub fn create_tag(&mut self, name: &str, message: &str) -> anyhow::Result<()> {
+        services::GitService::create_tag(&self.repository, name, message)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Push a tag to a remote
+    pub fn push_tag(&self, remote_name: &str, tag_name: &str) -> anyhow::Result<()> {
+        services::GitService::push_tag(&self.repository, remote_name, tag_name)
     }
 
     /// Save working tree changes to the stash
@@ -451,6 +470,30 @@ mod tests {
         // Should have staged changes, no unstaged
         assert!(!state.has_unstaged_changes());
         assert!(state.has_staged_changes());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tags_loaded_on_refresh() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let repo_path = temp_dir.path();
+
+        let repo = GitService::init_repository(repo_path)?;
+        let mut cfg = repo.config()?;
+        cfg.set_str("user.name", "Test User")?;
+        cfg.set_str("user.email", "test@example.com")?;
+
+        let file = repo_path.join("tag_test.txt");
+        fs::write(&file, "tagged")?;
+        GitService::stage_files(&repo, &[file.clone()])?;
+        GitService::create_commit(&repo, "commit for tag")?;
+
+        let head = repo.head()?.peel_to_commit()?.id();
+        repo.tag("test-tag", &repo.find_object(head, None)?, &repo.signature()?, "test", false)?;
+
+        let state = RepositoryState::new(repo, repo_path.to_path_buf())?;
+        assert!(state.tags.contains(&"test-tag".to_string()));
 
         Ok(())
     }
