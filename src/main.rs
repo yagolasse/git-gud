@@ -1,8 +1,17 @@
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    // If a path is provided as first argument, open it in GUI
-    let initial_path = if args.len() > 1 {
+    if args.len() > 1 && args[1] == "askpass" {
+        let prompt = args.get(2).map(|s| s.as_str()).unwrap_or("Enter passphrase:");
+        let port: u16 = std::env::var("GIT_GUD_ASKPASS_PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        git_gud::services::askpass::run_client(prompt, port);
+        return Ok(());
+    }
+
+    let initial_path = if args.len() > 1 && args[1] != "askpass" {
         Some(std::path::PathBuf::from(&args[1]))
     } else {
         None
@@ -15,6 +24,20 @@ fn run_gui_with_path(initial_path: Option<std::path::PathBuf>) -> anyhow::Result
     use eframe::egui;
 
     git_gud::services::LogService::init()?;
+    git_gud::services::git_command::init_config(Default::default());
+
+    let askpass_state = git_gud::services::askpass::AskpassState::new(
+        std::sync::Mutex::new(git_gud::services::askpass::AskpassRequests::new()),
+    );
+    git_gud::services::askpass::set_state(askpass_state.clone());
+    let port = git_gud::services::askpass::start_server(askpass_state);
+
+    log::info!("Askpass server listening on port {}", port);
+
+    let mut git_config = git_gud::services::git_command::GitConfig::default();
+    git_config.askpass = Some(std::path::PathBuf::from(std::env::current_exe().unwrap_or_default()));
+    git_config.askpass_port = Some(port);
+    git_gud::services::git_command::init_config(git_config);
 
     log::info!("Starting Git Gud GUI application");
 

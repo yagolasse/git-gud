@@ -25,6 +25,7 @@ pub struct MainWindow {
     open_repo_path: String,
     active_tab: ActiveTab,
     toolbar: crate::ui::Toolbar,
+    passphrase_dialog: crate::ui::PassphraseDialog,
     dark_mode: bool,
     prefs: AppPrefs,
 }
@@ -65,6 +66,7 @@ impl MainWindow {
             open_repo_path: ".".to_string(),
             active_tab: ActiveTab::Changes,
             toolbar: crate::ui::Toolbar::new(),
+            passphrase_dialog: crate::ui::PassphraseDialog::new(),
             dark_mode,
             prefs,
         };
@@ -104,6 +106,8 @@ impl MainWindow {
             let mut state = self.state.lock();
             state.handle_pending_actions();
         }
+
+        self.passphrase_dialog.poll_and_show(ctx, &mut self.state.lock().ui_state);
 
         // Sync dark mode and set egui visuals
         self.dark_mode = self.state.lock().dark_mode;

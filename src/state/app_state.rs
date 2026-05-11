@@ -47,12 +47,37 @@ pub struct AppState {
 
     /// Whether the UI is in dark mode
     pub dark_mode: bool,
+
+    /// Parsed SSH configuration
+    pub ssh_config: crate::models::SshConfig,
+
+    /// Current network operation status
+    pub network_status: NetworkStatus,
+}
+
+/// Status of an ongoing network operation (pull, push, fetch)
+#[derive(Clone)]
+pub enum NetworkStatus {
+    Idle,
+    Running {
+        operation: String,
+        lines: Vec<String>,
+    },
+}
+
+impl NetworkStatus {
+    pub fn is_running(&self) -> bool {
+        matches!(self, Self::Running { .. })
+    }
 }
 
 /// Application configuration
 pub struct AppConfig {
     /// Default repository path
     pub default_repository_path: PathBuf,
+
+    /// Path to git binary (defaults to "git")
+    pub git_binary_path: PathBuf,
 
     /// Whether to show hidden files
     pub show_hidden_files: bool,
@@ -78,6 +103,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             default_repository_path: PathBuf::from("."),
+            git_binary_path: PathBuf::from("git"),
             show_hidden_files: false,
             diff_style: DiffStyle::Unified,
             auto_refresh: true,
@@ -97,6 +123,8 @@ impl AppState {
             info_message: None,
             command_log: Vec::new(),
             dark_mode: false,
+            ssh_config: crate::models::SshConfig::load(),
+            network_status: NetworkStatus::Idle,
         }
     }
 
@@ -282,26 +310,41 @@ impl AppState {
                     }
                 }
                 super::ui_state::PendingAction::Pull => {
+                    self.network_status = NetworkStatus::Running {
+                        operation: "Pull".into(),
+                        lines: Vec::new(),
+                    };
                     match self.repository_state_mut().pull("origin") {
                         Ok(()) => self.set_info("Pull successful".to_string()),
                         Err(e) => self.set_error(format!("Pull failed: {}", e)),
                     }
+                    self.network_status = NetworkStatus::Idle;
                 }
                 super::ui_state::PendingAction::Push => {
                     let branch = self.repository_state
                         .as_ref()
                         .and_then(|r| r.current_branch().map(|b| b.to_string()))
                         .unwrap_or_else(|| "main".to_string());
+                    self.network_status = NetworkStatus::Running {
+                        operation: "Push".into(),
+                        lines: Vec::new(),
+                    };
                     match self.repository_state_mut().push("origin", &branch) {
                         Ok(()) => self.set_info("Push successful".to_string()),
                         Err(e) => self.set_error(format!("Push failed: {}", e)),
                     }
+                    self.network_status = NetworkStatus::Idle;
                 }
                 super::ui_state::PendingAction::PushTag(tag_name) => {
+                    self.network_status = NetworkStatus::Running {
+                        operation: format!("Push tag {}", tag_name),
+                        lines: Vec::new(),
+                    };
                     match self.repository_state_mut().push_tag("origin", &tag_name) {
                         Ok(()) => self.set_info(format!("Tag '{}' pushed to origin", tag_name)),
                         Err(e) => self.set_error(format!("Failed to push tag '{}': {}", tag_name, e)),
                     }
+                    self.network_status = NetworkStatus::Idle;
                 }
             }
             self.validate_file_selection();

@@ -17,23 +17,23 @@
 | `notify` | 6.1 | File system watcher for auto-refresh |
 | `syntect` | 5.3 | Syntax highlighting in diff view |
 | `tempfile` | 3.10 | Temporary repos in tests |
+| `uuid` | 1.23 | UUID generation for IPC tokens |
 | `dirs` | 5.0 | Platform directories |
 
 ## File Structure
 
 ```
 src/
-├── main.rs                    # Entry point — launches egui app
+├── main.rs                    # Entry point — launches egui app, askpass subcommand
 ├── lib.rs                     # Crate root, module declarations
 ├── models/
 │   ├── mod.rs                 # Re-exports all models
-│   ├── branch.rs              # Branch model
-│   ├── commit.rs              # Commit model
 │   ├── diff.rs                # DiffLine, UnifiedDiff, SideBySideDiff, DiffConfig
-│   ├── file_status.rs         # FileStatus enum
-│   └── repository.rs          # Repository model
+│   └── ssh_config.rs          # SshConfig + SshHost — parses ~/.ssh/config
 ├── services/
 │   ├── mod.rs
+│   ├── askpass.rs             # TCP-loopback IPC bridge for GIT_ASKPASS
+│   ├── git_command.rs         # Git binary abstraction (config, env, error classification)
 │   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, checkout)
 │   ├── diff_parser.rs         # Parse unified diff text → structured types
 │   ├── file_watcher_service.rs# notify-based auto-refresh
@@ -42,25 +42,27 @@ src/
 │   └── syntax_service.rs      # syntect integration, LRU cache
 ├── state/
 │   ├── mod.rs
-│   ├── app_state.rs           # AppState, AppConfig, LogEntry/LogLevel, dark_mode toggle
+│   ├── app_state.rs           # AppState, AppConfig, NetworkStatus, LogEntry/LogLevel
 │   ├── prefs.rs               # AppPrefs — persists dark_mode + last_repo to disk
-│   ├── repository_state.rs    # RepositoryState (staged/unstaged files, branches, commits)
-│   └── ui_state.rs            # UIState (selections, commit text, pending actions)
+│   ├── repository_state.rs    # RepositoryState (staged/unstaged files, branches, commits, tags)
+│   └── ui_state.rs            # UIState (selections, commit text, pending actions, passphrase state)
 └── ui/
     ├── mod.rs
     ├── colors.rs              # Shared Palette struct — LIGHT and DARK consts, get(dark) fn
-    ├── main_window.rs         # MainWindow — layout, menus, panels, dark mode sync
+    ├── main_window.rs         # MainWindow — layout, menus, panels, dark mode sync, passphrase poll
     └── components/
         ├── mod.rs
         ├── branch_list.rs     # Sidebar branch/remote/tag sections
         ├── command_log.rs     # Floating session log window (View menu)
+        ├── commit_graph.rs    # Lane-based commit DAG
         ├── commit_panel.rs    # Summary + description + Commit button
         ├── enhanced_diff_viewer.rs # Unified + split diff, dark content area
         ├── error_dialog.rs    # Modal error dialog
         ├── file_dialog.rs     # rfd native file dialog wrapper
         ├── file_list.rs       # Staged/Changes sections with stage/unstage actions
+        ├── passphrase_dialog.rs # Modal passphrase input for SSH key auth
         ├── recent_repos.rs    # Persisted recent repository list
-        ├── toolbar.rs         # Repo + branch pills, fetch/pull/push, sync counter
+        ├── toolbar.rs         # Repo + branch pills, fetch/pull/push, network indicator
         └── virtual_scroll.rs  # Virtual scrolling helper for large diffs
 ```
 
@@ -88,7 +90,53 @@ egui's bundled fonts do not cover Dingbats (✓ ⚙), Spacing Modifier Letters (
 UI events that mutate state set `ui_state.pending_action` and return. `AppState::handle_pending_actions()` is called at the start of the next frame. This avoids borrow conflicts in immediate-mode rendering.
 
 ### Network Operations (Pull / Push)
-Pull and push delegate to the system `git` binary via `std::process::Command`. This means the user's SSH config (`~/.ssh/config`), SSH agent, `known_hosts`, and credential helpers all work automatically — no libssh2/libgit2 credential callbacks needed. git2 is used exclusively for local operations (status, staging, commits, branching, diff).
+
+All remote git commands route through `git_command.rs`:
+- `git_command::run_blocking()` — synchronous, used during the transition
+- `git_command::run_async()` — tokio-based for future async integration
+- `git_command::run_streaming()` — line-by-line streaming via mpsc channels
+
+`GitConfig` (set via `init_config()` at startup, default-lazy otherwise) configures:
+- `binary: PathBuf` — path to the git binary (default `"git"`, settable for vendored git)
+- `askpass: Option<PathBuf>` — path to the `GIT_ASKPASS` helper binary
+- `askpass_port: Option<u16>` — TCP port for askpass IPC
+
+Error classification in `GitCommandError` distinguishes:
+- `Auth` — permission denied, host key verification failed
+- `Network` — DNS failure, connection refused
+- `RemoteRejected` — non-fast-forward push rejections
+- `Transport` / `Exit` / `Spawn` — other failures
+
+### SSH / Credential Auth (Askpass IPC)
+
+When system git needs an SSH passphrase or HTTPS credential, it invokes the `GIT_ASKPASS` program. The IPC flow:
+
+```
+system git → git-gud askpass "prompt" → TCP 127.0.0.1:<port> → GUI dialog → passphrase → stdout
+```
+
+1. **GUI startup** (`main.rs:run_gui_with_path`): spawns TCP listener on `127.0.0.1:0`, stores port, sets `GIT_ASKPASS=<current-exe>` and `GIT_GUD_ASKPASS_PORT=<port>` in `GitConfig`
+2. **Askpass subcommand** (`main.rs`): when `git-gud askpass <prompt>` is invoked, connects to TCP, sends prompt, reads response, prints to stdout
+3. **Server** (`askpass.rs:start_server`): accepts connections in a background thread, stores `PassphraseRequest`, polls `response` field
+4. **GUI poll** (`main_window.rs`): `PassphraseDialog::poll_and_show()` checks `AskpassState` for pending requests each frame, shows modal password dialog
+5. **User submits**: passphrase written to `AskpassRequests.response`, server reads it, sends back to client
+
+Cross-platform: TCP loopback (`127.0.0.1`) is identical on Windows, macOS, and Linux — no per-platform API surface.
+
+### SSH Config Parser
+
+`models/ssh_config.rs` parses `~/.ssh/config` at startup (no external crates):
+- `SshConfig::load()` — reads the file, parses `Host`, `HostName`, `Port`, `User`, `IdentityFile`
+- `SshConfig::find_host(alias)` — matches a hostname against wildcard patterns
+- Stored in `AppState.ssh_config`, available for UI display or identity file validation
+
+### Network Status
+
+`AppState.network_status: NetworkStatus` tracks ongoing remote operations:
+- `Idle` — no operation running
+- `Running { operation, lines }` — toolbar renders a colored status label (`"Push..."`, `"Pull..."`)
+
+Operations set `network_status` before running and reset to `Idle` after.
 
 ### Component Pattern
 Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mut AppState)` method. Internal helpers are free functions that accept `&Palette` and specific data — no stored color state.
@@ -107,7 +155,7 @@ Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mu
 ```powershell
 rtk cargo check          # Fast type-check (no binary)
 rtk cargo build          # Full build
-rtk cargo test           # Run all tests (96 expected to pass)
+rtk cargo test           # Run all tests (101 expected to pass)
 rtk cargo clippy         # Lint
 ```
 
@@ -142,5 +190,5 @@ When adding a feature that touches multiple files, define the types/signatures i
 | Push to upstream-less branch | `git_service.rs` `push()` | Needs `--set-upstream` / `-u` flag when no tracking branch exists |
 | Pull progress reporting | `toolbar.rs` | System git output not yet streamed; shows indeterminate spinner |
 | Fetch (without merge) | `toolbar.rs` | Button stub; `git fetch origin` via CLI |
-| SSH passphrase prompt | — | For passphrase-protected keys not in agent: intercept before spawning git |
+| SSH passphrase prompt | `askpass.rs` | Implemented via GIT_ASKPASS + TCP loopback IPC |
 | Credential helper for HTTPS | — | `git credential fill` via subprocess handles this already |

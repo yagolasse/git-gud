@@ -8,7 +8,7 @@ mod prefs;
 mod repository_state;
 mod ui_state;
 
-pub use app_state::{AppState, LogEntry, LogLevel, SharedAppState};
+pub use app_state::{AppConfig, AppState, LogEntry, LogLevel, NetworkStatus, SharedAppState};
 pub use prefs::AppPrefs;
 pub use repository_state::RepositoryState;
 pub use ui_state::{PendingAction, UIState};

@@ -3,8 +3,10 @@
 //! This module contains the business logic and Git operations
 //! that power both the CLI and GUI interfaces.
 
+pub mod askpass;
 pub mod diff_parser;
 pub mod file_watcher_service;
+pub mod git_command;
 pub mod git_service;
 pub mod log_service;
 pub mod repository_service;

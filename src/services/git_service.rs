@@ -507,74 +507,53 @@ impl GitService {
     }
 
     /// Pull from a remote using the system git binary (fast-forward only).
-    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
     pub fn pull(repo: &Repository, remote_name: &str) -> Result<()> {
         let workdir = repo.workdir()
-            .ok_or_else(|| anyhow!("Not a working repository"))?
-            .to_path_buf();
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
 
         let head = repo.head()?;
         let branch = head.shorthand()
             .ok_or_else(|| anyhow!("No current branch"))?.to_string();
 
-        let out = std::process::Command::new("git")
-            .args(["pull", "--ff-only", remote_name, &branch])
-            .current_dir(&workdir)
-            .output()
-            .map_err(|e| anyhow!("Could not run git: {}", e))?;
+        log::info!("Pulling {} from {}", branch, remote_name);
+        crate::services::git_command::run_blocking(
+            workdir.as_ref(),
+            &["pull", "--ff-only", remote_name, &branch],
+        )
+        .map_err(|e| anyhow!("{}", e))?;
 
-        if out.status.success() {
-            log::info!("Pull successful");
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            Err(anyhow!("{}", stderr.trim()))
-        }
+        Ok(())
     }
 
     /// Push a branch to a remote using the system git binary.
-    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
     pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<()> {
         let workdir = repo.workdir()
-            .ok_or_else(|| anyhow!("Not a working repository"))?
-            .to_path_buf();
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
 
-        let out = std::process::Command::new("git")
-            .args(["push", remote_name, branch_name])
-            .current_dir(&workdir)
-            .output()
-            .map_err(|e| anyhow!("Could not run git: {}", e))?;
+        log::info!("Pushing {} to {}", branch_name, remote_name);
+        crate::services::git_command::run_blocking(
+            workdir.as_ref(),
+            &["push", remote_name, branch_name],
+        )
+        .map_err(|e| anyhow!("{}", e))?;
 
-        if out.status.success() {
-            log::info!("Push successful");
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            Err(anyhow!("{}", stderr.trim()))
-        }
+        Ok(())
     }
 
     /// Push a tag to a remote using the system git binary.
-    /// Delegates to system git so SSH config, agent, and known_hosts work automatically.
     pub fn push_tag(repo: &Repository, remote_name: &str, tag_name: &str) -> Result<()> {
         let workdir = repo.workdir()
-            .ok_or_else(|| anyhow!("Not a working repository"))?
-            .to_path_buf();
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
 
         let refspec = format!("refs/tags/{}", tag_name);
-        let out = std::process::Command::new("git")
-            .args(["push", remote_name, &refspec])
-            .current_dir(&workdir)
-            .output()
-            .map_err(|e| anyhow!("Could not run git: {}", e))?;
+        log::info!("Pushing tag {} to {}", tag_name, remote_name);
+        crate::services::git_command::run_blocking(
+            workdir.as_ref(),
+            &["push", remote_name, &refspec],
+        )
+        .map_err(|e| anyhow!("{}", e))?;
 
-        if out.status.success() {
-            log::info!("Tag '{}' pushed to {}", tag_name, remote_name);
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            Err(anyhow!("{}", stderr.trim()))
-        }
+        Ok(())
     }
 
     /// Get recent commits via RevWalk (topological + time order)

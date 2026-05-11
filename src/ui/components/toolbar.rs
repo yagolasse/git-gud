@@ -146,6 +146,20 @@ impl Toolbar {
             }
         }
 
+        if let crate::state::NetworkStatus::Running { operation, .. } = &state.network_status {
+            let label = format!("{}...", operation);
+            let font = egui::FontId::proportional(11.0);
+            let label_w = ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), p.accent_text).size().x);
+            let indicator_x = bar_rect.max.x - 10.0 - 26.0 - label_w - 8.0;
+            ui.painter().text(
+                egui::pos2(indicator_x, cy),
+                egui::Align2::LEFT_CENTER,
+                label,
+                font,
+                p.accent_text,
+            );
+        }
+
         // Settings — far right
         let gear_rect = egui::Rect::from_center_size(
             egui::pos2(bar_rect.max.x - 10.0 - 13.0, cy),

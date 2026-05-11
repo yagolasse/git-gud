@@ -67,6 +67,10 @@ pub struct StashEntry {
 pub mod diff;
 pub use diff::*;
 
+// SSH configuration model
+pub mod ssh_config;
+pub use ssh_config::{SshConfig, SshHost};
+
 #[cfg(test)]
 mod tests {
     use super::*;

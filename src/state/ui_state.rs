@@ -54,6 +54,11 @@ pub struct UIState {
     pub show_create_tag_dialog: bool,
     pub new_tag_name: String,
     pub new_tag_message: String,
+
+    /// Passphrase dialog state
+    pub show_passphrase_dialog: bool,
+    pub passphrase_prompt: String,
+    pub passphrase_input: String,
 }
 
 impl UIState {
@@ -77,6 +82,9 @@ impl UIState {
             show_create_tag_dialog: false,
             new_tag_name: String::new(),
             new_tag_message: String::new(),
+            show_passphrase_dialog: false,
+            passphrase_prompt: String::new(),
+            passphrase_input: String::new(),
         }
     }
 
