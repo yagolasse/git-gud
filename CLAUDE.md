@@ -84,7 +84,6 @@ All colors live in `src/ui/colors.rs`. Components call `crate::ui::colors::get(s
 egui's bundled fonts do not cover Dingbats (✓ ⚙), Spacing Modifier Letters (˅), or Small Geometric Shapes (▾ ▸). All icon drawing uses painter primitives instead:
 - Chevrons → `egui::Shape::convex_polygon` (filled triangles)
 - Checkmarks → `painter.line_segment` (two strokes)
-- Gear/settings → `painter.line_segment` (three horizontal lines)
 
 ### Pending Actions
 UI events that mutate state set `ui_state.pending_action` and return. `AppState::handle_pending_actions()` is called at the start of the next frame. This avoids borrow conflicts in immediate-mode rendering.
@@ -134,9 +133,9 @@ Cross-platform: TCP loopback (`127.0.0.1`) is identical on Windows, macOS, and L
 
 `AppState.network_status: NetworkStatus` tracks ongoing remote operations:
 - `Idle` — no operation running
-- `Running { operation, lines }` — toolbar renders a colored status label (`"Push..."`, `"Pull..."`)
+- `Running { operation, lines, progress, lines_rx, is_pull }` — pull/push runs in a background thread; toolbar shows an inline circular spinner next to the active button; `poll_network()` drains the mpsc channel each frame
 
-Operations set `network_status` before running and reset to `Idle` after.
+`NetworkStatus` manually implements `Clone` (returns `Idle`) because `Receiver<StreamLine>` is not `Clone`.
 
 ### Component Pattern
 Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mut AppState)` method. Internal helpers are free functions that accept `&Palette` and specific data — no stored color state.
@@ -168,7 +167,7 @@ rtk cargo clippy         # Lint
 
 ### Always After Every Change
 1. `rtk cargo check` — must pass with zero errors
-2. `rtk cargo test` — all 96 tests must still pass
+2. `rtk cargo test` — all 101 tests must still pass
 3. Never run the GUI yourself — the user tests the UI
 
 ### Interface First
@@ -178,17 +177,11 @@ When adding a feature that touches multiple files, define the types/signatures i
 
 | Feature | Location | Notes |
 |---------|----------|-------|
-| New Branch | `toolbar.rs` | Button exists, not wired |
-| Stash | `toolbar.rs` | Button exists, not wired |
 | Amend commit | `commit_panel.rs` | Checkbox exists, not implemented |
-| Create branch (+ button) | `branch_list.rs` | Shows "not yet implemented" |
 | Word-level diff | `enhanced_diff_viewer.rs` | `DiffDisplayMode::WordLevel` falls through to unified |
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
-| Settings dialog | toolbar gear icon | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
 | Push to upstream-less branch | `git_service.rs` `push()` | Needs `--set-upstream` / `-u` flag when no tracking branch exists |
-| Pull progress reporting | `toolbar.rs` | System git output not yet streamed; shows indeterminate spinner |
-| Fetch (without merge) | `toolbar.rs` | Button stub; `git fetch origin` via CLI |
-| SSH passphrase prompt | `askpass.rs` | Implemented via GIT_ASKPASS + TCP loopback IPC |
-| Credential helper for HTTPS | — | `git credential fill` via subprocess handles this already |
+| Fetch (without merge) | `toolbar.rs` | Button calls `refresh_repository()`; should run `git fetch origin` |
+| Add remote | `toolbar.rs` | No UI yet to add/configure remotes |

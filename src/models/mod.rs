@@ -63,6 +63,13 @@ pub struct StashEntry {
     pub message: String,
 }
 
+/// A tag pointing to a specific commit
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub name: String,
+    pub commit_id: String,
+}
+
 // Re-export diff module
 pub mod diff;
 pub use diff::*;

@@ -78,7 +78,17 @@ impl Toolbar {
 
         x = self.vsep(ui, p, x, cy);
 
-        let (fetch_r, fetch_clk) = self.ghost_btn(ui, p, x, cy, "Fetch", false, "btn_fetch");
+        // Snapshot running state so we can disable the relevant button and inline the spinner.
+        let (pull_running, push_running, net_progress, net_last_line) =
+            match &state.network_status {
+                crate::state::NetworkStatus::Running { operation, progress, lines, .. } => {
+                    let is_pull = operation == "Pull";
+                    (is_pull, !is_pull, *progress, lines.last().cloned())
+                }
+                _ => (false, false, -1.0, None),
+            };
+
+        let (fetch_r, fetch_clk) = self.ghost_btn(ui, p, x, cy, "Fetch", false, false, "btn_fetch");
         x = fetch_r.max.x + 4.0;
         if fetch_clk && state.has_repository() {
             if let Err(e) = state.refresh_repository() {
@@ -88,39 +98,38 @@ impl Toolbar {
             }
         }
 
-        let (pull_r, pull_clk) = self.ghost_btn(ui, p, x, cy, "Pull", false, "btn_pull");
+        let (pull_r, pull_clk) = self.ghost_btn(ui, p, x, cy, "Pull", false, pull_running, "btn_pull");
         x = pull_r.max.x + 4.0;
         if pull_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
         }
+        if pull_running {
+            x = inline_spinner(ui, p, x, cy, net_progress, net_last_line.as_deref());
+        }
 
-        let (push_r, push_clk) = self.ghost_btn(ui, p, x, cy, "Push", false, "btn_push");
+        let (push_r, push_clk) = self.ghost_btn(ui, p, x, cy, "Push", false, push_running, "btn_push");
         x = push_r.max.x + 4.0;
         if push_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Push);
         }
+        if push_running {
+            x = inline_spinner(ui, p, x, cy, net_progress, net_last_line.as_deref());
+        }
 
-        if let crate::state::NetworkStatus::Running { operation, .. } = &state.network_status {
-            let label = format!("{}...", operation);
-            let font = egui::FontId::proportional(11.0);
-            let label_w = ui.fonts(|f| f.layout_no_wrap(label.clone(), font.clone(), p.accent_text).size().x);
-            let ind_rect = egui::Rect::from_min_size(egui::pos2(x, cy - ITEM_H / 2.0), egui::vec2(label_w + 12.0, ITEM_H));
-            let time = ui.ctx().input(|i| i.time) as usize;
-            let dots = &["   ", ".  ", ".. ", "..."][time % 4usize];
-            let label_with_dots = format!("{}{}", label.trim_end_matches('.'), dots);
-            ui.painter().text(ind_rect.center(), egui::Align2::CENTER_CENTER, &label_with_dots, font, p.accent_text);
-            x = ind_rect.max.x + 4.0;
+        if pull_running || push_running {
+            ui.ctx().request_repaint();
         }
 
         x = self.vsep(ui, p, x, cy);
 
-        let (nb_r, nb_clk) = self.ghost_btn(ui, p, x, cy, "New branch", false, "btn_newbranch");
+        let (nb_r, nb_clk) = self.ghost_btn(ui, p, x, cy, "New branch", false, false, "btn_newbranch");
         x = nb_r.max.x + 4.0;
         if nb_clk && state.has_repository() {
             state.ui_state.show_create_branch_dialog = true;
         }
 
-        let (_, st_clk) = self.ghost_btn(ui, p, x, cy, "Stash", false, "btn_stash");
+        let (st_r, st_clk) = self.ghost_btn(ui, p, x, cy, "Stash", false, false, "btn_stash");
+        x = st_r.max.x + 4.0;
         if st_clk && state.has_repository() {
             state.ui_state.show_stash_save_dialog = true;
         }
@@ -165,20 +174,9 @@ impl Toolbar {
             }
         }
 
-        // Settings — far right
-        let gear_rect = egui::Rect::from_center_size(
-            egui::pos2(bar_rect.max.x - 10.0 - 13.0, cy),
-            egui::vec2(26.0, ITEM_H),
-        );
-        let gear_id = ui.id().with("btn_settings");
-        let gear_resp = ui.interact(gear_rect, gear_id, egui::Sense::click());
-        if gear_resp.hovered() {
-            ui.painter().rect_filled(gear_rect, 6.0, p.bg_secondary);
-            ui.painter().rect_stroke(gear_rect, 6.0, egui::Stroke::new(0.5, p.border));
-        }
-        paint_gear(ui.painter(), gear_rect.center(), if gear_resp.hovered() { p.text_primary } else { p.text_secondary });
-        if gear_resp.clicked() {
-            state.set_info("Settings not yet implemented".to_string());
+        let (_, nt_clk) = self.ghost_btn(ui, p, x, cy, "New tag", false, false, "btn_newtag");
+        if nt_clk && state.has_repository() {
+            state.ui_state.show_create_tag_dialog = true;
         }
     }
 
@@ -231,6 +229,7 @@ impl Toolbar {
         cy: f32,
         label: &str,
         primary: bool,
+        disabled: bool,
         id_key: &str,
     ) -> (egui::Rect, bool) {
         let font = egui::FontId::proportional(12.0);
@@ -241,6 +240,18 @@ impl Toolbar {
             egui::vec2(btn_w, ITEM_H),
         );
         let id = ui.id().with(id_key);
+
+        if disabled {
+            ui.painter().text(
+                btn_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                font,
+                p.text_tertiary,
+            );
+            return (btn_rect, false);
+        }
+
         let resp = ui.interact(btn_rect, id, egui::Sense::click());
         let hov = resp.hovered();
         let clk = resp.clicked();
@@ -274,14 +285,93 @@ impl Default for Toolbar {
     fn default() -> Self { Self::new() }
 }
 
-fn paint_gear(painter: &egui::Painter, center: egui::Pos2, color: egui::Color32) {
-    let stroke = egui::Stroke::new(1.5, color);
-    let w = 6.0;
-    for dy in [-2.5f32, 0.0, 2.5] {
+/// Render a small inline spinner just after a button, returning the new x position.
+fn inline_spinner(
+    ui: &mut egui::Ui,
+    p: &Palette,
+    x: f32,
+    cy: f32,
+    progress: f32,
+    tooltip: Option<&str>,
+) -> f32 {
+    let r = 7.0_f32;
+    let center = egui::pos2(x + r, cy);
+    let t = ui.ctx().input(|i| i.time) as f32;
+    paint_spinner(ui.painter(), center, r, progress, t, p.bg_tertiary, p.accent_text);
+
+    if let Some(text) = tooltip {
+        let area_id = ui.id().with("net_spinner_tip").with(x as i32);
+        let area = egui::Rect::from_center_size(center, egui::vec2(r * 2.0 + 4.0, ITEM_H));
+        ui.interact(area, area_id, egui::Sense::hover()).on_hover_text(text);
+    }
+
+    x + r * 2.0 + 4.0
+}
+
+/// Draw a circular progress indicator.
+/// `progress < 0` → indeterminate spinning arc; `0..=1` → filled arc clockwise from top.
+fn paint_spinner(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    progress: f32,
+    t: f32,
+    track_color: egui::Color32,
+    fill_color: egui::Color32,
+) {
+    use std::f32::consts::TAU;
+    const SEGS: usize = 48;
+    let stroke_w = 2.0_f32;
+
+    // Track (full circle)
+    let track_stroke = egui::Stroke::new(stroke_w, track_color);
+    for i in 0..SEGS {
+        let a1 = (i as f32 / SEGS as f32) * TAU;
+        let a2 = ((i + 1) as f32 / SEGS as f32) * TAU;
         painter.line_segment(
-            [egui::pos2(center.x - w, center.y + dy), egui::pos2(center.x + w, center.y + dy)],
-            stroke,
+            [
+                egui::pos2(center.x + radius * a1.cos(), center.y + radius * a1.sin()),
+                egui::pos2(center.x + radius * a2.cos(), center.y + radius * a2.sin()),
+            ],
+            track_stroke,
         );
+    }
+
+    // Arc (indeterminate or determinate)
+    let fill_stroke = egui::Stroke::new(stroke_w, fill_color);
+    if progress < 0.0 {
+        // Rotating 120° arc
+        let arc = TAU / 3.0;
+        let start = t * TAU * 0.8; // one rotation every ~1.25 s
+        for i in 0..SEGS {
+            let frac = i as f32 / SEGS as f32;
+            if frac >= arc / TAU { break; }
+            let a1 = start + frac * TAU;
+            let a2 = start + (frac + 1.0 / SEGS as f32) * TAU;
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + radius * a1.cos(), center.y + radius * a1.sin()),
+                    egui::pos2(center.x + radius * a2.cos(), center.y + radius * a2.sin()),
+                ],
+                fill_stroke,
+            );
+        }
+    } else {
+        // Clockwise from top (-π/2), filling to `progress` fraction
+        let frac = progress.clamp(0.0, 1.0);
+        let start = -TAU / 4.0;
+        let arc_segs = ((frac * SEGS as f32) as usize).min(SEGS);
+        for i in 0..arc_segs {
+            let a1 = start + (i as f32 / SEGS as f32) * TAU;
+            let a2 = start + ((i + 1) as f32 / SEGS as f32) * TAU;
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + radius * a1.cos(), center.y + radius * a1.sin()),
+                    egui::pos2(center.x + radius * a2.cos(), center.y + radius * a2.sin()),
+                ],
+                fill_stroke,
+            );
+        }
     }
 }
 

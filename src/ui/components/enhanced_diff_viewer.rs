@@ -44,6 +44,9 @@ impl EnhancedDiffViewer {
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
         let p = crate::ui::colors::get(state.dark_mode);
 
+        let theme = if state.dark_mode { "base16-ocean.dark" } else { "InspiredGitHub" };
+        self.syntax_service.set_theme(theme);
+
         let current_selected_file = state.ui_state.selected_file_path().cloned();
         let needs_refresh = current_selected_file != self.last_selected_file;
         let files_changed = state.ui_state.check_and_reset_staged_unstaged();
@@ -260,17 +263,31 @@ impl EnhancedDiffViewer {
             }
         };
 
+        let syntax_svc = std::sync::Arc::clone(&self.syntax_service);
+        let file_path_owned = file_path.to_path_buf();
+
         egui::ScrollArea::vertical()
             .id_salt(egui::Id::new("unified_diff").with(file_path))
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, lines.len(), |ui, row_range| {
+                let syntax = syntax_svc.detect_syntax(&file_path_owned);
                 for i in row_range {
-                    Self::show_diff_row(ui, p, &lines[i]);
+                    let job = if !lines[i].content.is_empty() {
+                        Some(syntax_svc.highlight_line(&lines[i].content, syntax))
+                    } else {
+                        None
+                    };
+                    Self::show_diff_row(ui, p, &lines[i], job);
                 }
             });
     }
 
-    fn show_diff_row(ui: &mut egui::Ui, p: &Palette, line: &crate::models::diff::DiffLine) {
+    fn show_diff_row(
+        ui: &mut egui::Ui,
+        p: &Palette,
+        line: &crate::models::diff::DiffLine,
+        highlight: Option<egui::text::LayoutJob>,
+    ) {
         let available_width = ui.available_width();
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(available_width, ROW_HEIGHT), egui::Sense::hover());
@@ -320,11 +337,20 @@ impl EnhancedDiffViewer {
             );
         }
         if !line.content.is_empty() {
-            painter.text(
-                egui::pos2(rect.min.x + GUTTER_TOTAL + 2.0, y),
-                egui::Align2::LEFT_CENTER,
-                &line.content, mono, text_color,
-            );
+            if let Some(job) = highlight {
+                let galley = ui.fonts(|f| f.layout_job(job));
+                let pos = egui::pos2(
+                    rect.min.x + GUTTER_TOTAL + 2.0,
+                    rect.min.y + (ROW_HEIGHT - galley.size().y) / 2.0,
+                );
+                painter.galley(pos, galley, text_color);
+            } else {
+                painter.text(
+                    egui::pos2(rect.min.x + GUTTER_TOTAL + 2.0, y),
+                    egui::Align2::LEFT_CENTER,
+                    &line.content, mono, text_color,
+                );
+            }
         }
     }
 
@@ -354,12 +380,25 @@ impl EnhancedDiffViewer {
         let right_lines = side_by_side_diff.right_lines.clone();
         let mut new_sync_y = sync_y;
 
+        let syntax_svc_l = std::sync::Arc::clone(&self.syntax_service);
+        let syntax_svc_r = std::sync::Arc::clone(&self.syntax_service);
+        let file_path_owned = file_path.to_path_buf();
+
         ui.columns(2, |columns| {
+            let fp = file_path_owned.clone();
             let left_out = egui::ScrollArea::vertical()
                 .id_salt(left_id)
                 .auto_shrink([false, false])
                 .show_rows(&mut columns[0], ROW_HEIGHT, left_lines.len(), |ui, range| {
-                    for i in range { Self::show_diff_row(ui, p, &left_lines[i]); }
+                    let syntax = syntax_svc_l.detect_syntax(&fp);
+                    for i in range {
+                        let job = if !left_lines[i].content.is_empty() {
+                            Some(syntax_svc_l.highlight_line(&left_lines[i].content, syntax))
+                        } else {
+                            None
+                        };
+                        Self::show_diff_row(ui, p, &left_lines[i], job);
+                    }
                 });
             new_sync_y = left_out.state.offset.y;
 
@@ -370,7 +409,15 @@ impl EnhancedDiffViewer {
                 right_scroll = right_scroll.scroll_offset(egui::Vec2::new(0.0, sync_y));
             }
             right_scroll.show_rows(&mut columns[1], ROW_HEIGHT, right_lines.len(), |ui, range| {
-                for i in range { Self::show_diff_row(ui, p, &right_lines[i]); }
+                let syntax = syntax_svc_r.detect_syntax(&file_path_owned);
+                for i in range {
+                    let job = if !right_lines[i].content.is_empty() {
+                        Some(syntax_svc_r.highlight_line(&right_lines[i].content, syntax))
+                    } else {
+                        None
+                    };
+                    Self::show_diff_row(ui, p, &right_lines[i], job);
+                }
             });
         });
 

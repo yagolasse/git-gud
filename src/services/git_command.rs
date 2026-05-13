@@ -153,6 +153,70 @@ pub fn run_blocking(
     }
 }
 
+/// A message produced by `run_streaming_std`.
+pub enum StreamLine {
+    /// One line of output from the git process (stdout or stderr).
+    Output(String),
+    /// The process has exited. `Ok(())` = success; `Err(msg)` = failure with git's stderr.
+    Done(Result<(), String>),
+}
+
+/// Spawn the git command in background threads and stream output lines back via a channel.
+/// The final message on the channel is always `StreamLine::Done`.
+pub fn run_streaming_std(
+    repo_path: &std::path::Path,
+    args: Vec<String>,
+) -> Result<std::sync::mpsc::Receiver<StreamLine>, GitCommandError> {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let cfg = config();
+    let mut cmd = std::process::Command::new(&cfg.binary);
+    cmd.args(&args).current_dir(repo_path).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for (k, v) in cfg.env_vars() {
+        cmd.env(k, v);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| GitCommandError::Spawn(e.to_string()))?;
+    let (tx, rx) = mpsc::channel::<StreamLine>();
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+
+    // Stderr reader: sends each trimmed line as Output, accumulates for final error message.
+    let tx_err = tx.clone();
+    let (stderr_done_tx, stderr_done_rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut acc = String::new();
+        for line in BufReader::new(stderr).lines().flatten() {
+            let line = line.trim_end_matches('\r').to_string();
+            if !acc.is_empty() { acc.push('\n'); }
+            acc.push_str(&line);
+            let _ = tx_err.send(StreamLine::Output(line));
+        }
+        let _ = stderr_done_tx.send(acc);
+    });
+
+    // Stdout reader + completion: reads stdout, then waits for the process and stderr thread.
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            let line = line.trim_end_matches('\r').to_string();
+            let _ = tx.send(StreamLine::Output(line));
+        }
+        let exit_ok = child.wait().map_or(false, |s| s.success());
+        let stderr_msg = stderr_done_rx.recv().unwrap_or_default();
+        let result = if exit_ok {
+            Ok(())
+        } else {
+            let msg = stderr_msg.trim().to_string();
+            Err(if msg.is_empty() { "git command failed".to_string() } else { msg })
+        };
+        let _ = tx.send(StreamLine::Done(result));
+    });
+
+    Ok(rx)
+}
+
 /// Run a git command asynchronously via tokio.
 #[allow(dead_code)]
 pub async fn run_async(

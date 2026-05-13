@@ -195,15 +195,23 @@ impl GitService {
         repo.graph_ahead_behind(local_oid, upstream_oid).unwrap_or((0, 0))
     }
 
-    /// Get list of tag names
-    pub fn get_tags(repo: &Repository) -> Result<Vec<String>> {
+    /// Get list of tags with their target commit IDs
+    pub fn get_tags(repo: &Repository) -> Result<Vec<models::Tag>> {
         log::info!("Getting tags");
 
         let tag_names = repo.tag_names(None)?;
-        let tags: Vec<String> = tag_names
-            .iter()
-            .filter_map(|n| n.map(String::from))
-            .collect();
+        let mut tags = Vec::new();
+        for name in tag_names.iter().filter_map(|n| n) {
+            let refname = format!("refs/tags/{}", name);
+            if let Ok(reference) = repo.find_reference(&refname) {
+                if let Ok(commit) = reference.peel_to_commit() {
+                    tags.push(models::Tag {
+                        name: name.to_string(),
+                        commit_id: commit.id().to_string(),
+                    });
+                }
+            }
+        }
 
         log::debug!("Found {} tags", tags.len());
         Ok(tags)

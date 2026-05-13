@@ -718,9 +718,9 @@ fn test_get_tags_empty_and_populated() -> Result<()> {
 
     let tags = GitService::get_tags(&repo)?;
     assert_eq!(tags.len(), 3);
-    assert!(tags.contains(&"v1.0".to_string()));
-    assert!(tags.contains(&"v2.0".to_string()));
-    assert!(tags.contains(&"lightweight".to_string()));
+    assert!(tags.iter().any(|t| t.name == "v1.0"));
+    assert!(tags.iter().any(|t| t.name == "v2.0"));
+    assert!(tags.iter().any(|t| t.name == "lightweight"));
 
     Ok(())
 }
@@ -740,7 +740,7 @@ fn test_create_tag() -> Result<()> {
     GitService::create_tag(&repo, "release-1.0", "First release")?;
 
     let tags = GitService::get_tags(&repo)?;
-    assert!(tags.contains(&"release-1.0".to_string()));
+    assert!(tags.iter().any(|t| t.name == "release-1.0"));
 
     Ok(())
 }

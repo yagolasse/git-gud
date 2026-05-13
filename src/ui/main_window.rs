@@ -105,6 +105,7 @@ impl MainWindow {
         {
             let mut state = self.state.lock();
             state.handle_pending_actions();
+            state.poll_network();
         }
 
         self.passphrase_dialog.poll_and_show(ctx, &mut self.state.lock().ui_state);

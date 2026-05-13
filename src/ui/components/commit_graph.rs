@@ -3,7 +3,7 @@ use crate::state::AppState;
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 
-const ROW_HEIGHT: f32 = 24.0;
+const ROW_HEIGHT: f32 = 28.0;
 const LANE_WIDTH: f32 = 14.0;
 const DOT_RADIUS: f32 = 4.0;
 const GRAPH_COLORS: [Color32; 7] = [
@@ -196,6 +196,16 @@ impl CommitGraph {
         let max_lanes = self.rows.iter().map(|r| r.width).max().unwrap_or(1);
         let graph_col_width = max_lanes as f32 * LANE_WIDTH + 8.0;
 
+        let tag_map: HashMap<String, Vec<String>> = {
+            let mut m: HashMap<String, Vec<String>> = HashMap::new();
+            if let Some(rs) = state.repository_state.as_ref() {
+                for tag in &rs.tags {
+                    m.entry(tag.commit_id.clone()).or_default().push(tag.name.clone());
+                }
+            }
+            m
+        };
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, row_count, |ui, visible| {
@@ -289,6 +299,34 @@ impl CommitGraph {
                                 label_color,
                             );
                             label_end_x += lw + 4.0;
+                        }
+
+                        // Tag chips after branch chips
+                        if let Some(tag_names) = tag_map.get(&commit.id) {
+                            let tag_color = p.status_modified;
+                            for tag_name in tag_names {
+                                let galley = ui.fonts(|f| {
+                                    f.layout_no_wrap(
+                                        tag_name.to_string(),
+                                        egui::FontId::proportional(10.0),
+                                        tag_color,
+                                    )
+                                });
+                                let lw = galley.size().x + 6.0;
+                                let lh = galley.size().y + 2.0;
+                                let tag_rect = Rect::from_min_size(
+                                    Pos2::new(label_end_x, text_y - lh / 2.0),
+                                    Vec2::new(lw, lh),
+                                );
+                                painter.rect_filled(tag_rect, 3.0, p.bg_tertiary);
+                                painter.rect_stroke(tag_rect, 3.0, Stroke::new(1.0, p.border));
+                                painter.galley(
+                                    Pos2::new(label_end_x + 3.0, text_y - galley.size().y / 2.0),
+                                    galley,
+                                    tag_color,
+                                );
+                                label_end_x += lw + 4.0;
+                            }
                         }
                     }
 

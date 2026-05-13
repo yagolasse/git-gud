@@ -74,13 +74,11 @@ impl BranchList {
         };
 
         let stashes: Vec<crate::models::StashEntry> = state.repository_state().stashes.clone();
-        let tags: Vec<String> = state.repository_state().tags.clone();
+        let tags: Vec<crate::models::Tag> = state.repository_state().tags.clone();
         let selected_branch = state.ui_state.selected_branch.clone();
         let mut branch_to_select: Option<String> = None;
         let mut branch_to_checkout: Option<String> = None;
         let mut branch_to_delete: Option<String> = None;
-        let mut create_branch = false;
-        let mut create_tag = false;
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
@@ -88,9 +86,7 @@ impl BranchList {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if Self::show_section_header(ui, p, "BRANCHES", &mut self.branches_open, true) {
-                    create_branch = true;
-                }
+                Self::show_section_header(ui, p, "BRANCHES", &mut self.branches_open, false);
                 if self.branches_open {
                     for branch in &local_branches {
                         let (sel, chk, del) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0);
@@ -138,17 +134,15 @@ impl BranchList {
                     }
                 }
 
-                if Self::show_section_header(ui, p, "TAGS", &mut self.tags_open, true) {
-                    create_tag = true;
-                }
+                Self::show_section_header(ui, p, "TAGS", &mut self.tags_open, false);
                 if self.tags_open {
                     if tags.is_empty() {
                         Self::show_empty_hint(ui, p, "No tags", 22.0);
                     } else {
                         for tag in &tags {
-                            let push = Self::show_tag_row(ui, p, tag, 18.0);
+                            let push = Self::show_tag_row(ui, p, &tag.name, 18.0);
                             if push {
-                                tag_to_push = Some(tag.clone());
+                                tag_to_push = Some(tag.name.clone());
                             }
                         }
                     }
@@ -171,12 +165,6 @@ impl BranchList {
                 Self::show_section_header(ui, p, "SUBMODULES", &mut self.submodules_open, false);
             });
 
-        if create_branch {
-            state.ui_state.show_create_branch_dialog = true;
-        }
-        if create_tag {
-            state.ui_state.show_create_tag_dialog = true;
-        }
         if let Some(name) = tag_to_push {
             state.ui_state.pending_action = Some(crate::state::PendingAction::PushTag(name));
         }

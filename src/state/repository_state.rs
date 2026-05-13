@@ -37,8 +37,8 @@ pub struct RepositoryState {
     /// Stash entries
     pub stashes: Vec<models::StashEntry>,
 
-    /// Tag names
-    pub tags: Vec<String>,
+    /// Tags with target commit IDs
+    pub tags: Vec<crate::models::Tag>,
 
     /// Ahead/behind counts for the current branch
     pub ahead: usize,
@@ -504,7 +504,7 @@ mod tests {
         repo.tag("test-tag", &repo.find_object(head, None)?, &repo.signature()?, "test", false)?;
 
         let state = RepositoryState::new(repo, repo_path.to_path_buf())?;
-        assert!(state.tags.contains(&"test-tag".to_string()));
+        assert!(state.tags.iter().any(|t| t.name == "test-tag"));
 
         Ok(())
     }
