@@ -206,6 +206,8 @@ impl CommitGraph {
             m
         };
 
+        ui.spacing_mut().item_spacing.y = 0.0;
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, row_count, |ui, visible| {

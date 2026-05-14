@@ -34,50 +34,6 @@ impl Toolbar {
             x = self.vsep(ui, p, x, cy);
         }
 
-        let branch_name = state
-            .repository_state
-            .as_ref()
-            .and_then(|r| r.branches.iter().find(|b| b.is_current).map(|b| b.name.clone()))
-            .unwrap_or_else(|| "—".to_string());
-        x = self.pill_button(ui, p, x, cy, &branch_name, Some(p.lane_0), "pill_branch");
-
-        let (ahead, behind) = state
-            .repository_state
-            .as_ref()
-            .map(|r| (r.ahead, r.behind))
-            .unwrap_or((0, 0));
-
-        {
-            let font = egui::FontId::proportional(11.0);
-            let up_c = egui::pos2(x + 5.0, cy);
-            let up_color = if ahead > 0 { p.accent_success } else { p.text_tertiary };
-            ui.painter().add(egui::Shape::convex_polygon(
-                vec![
-                    egui::pos2(up_c.x - 3.0, up_c.y + 2.0),
-                    egui::pos2(up_c.x + 3.0, up_c.y + 2.0),
-                    egui::pos2(up_c.x, up_c.y - 2.5),
-                ],
-                up_color,
-                egui::Stroke::NONE,
-            ));
-            ui.painter().text(egui::pos2(x + 10.0, cy), egui::Align2::LEFT_CENTER, &ahead.to_string(), font.clone(), p.text_tertiary);
-            let dn_c = egui::pos2(x + 24.0, cy);
-            let dn_color = if behind > 0 { p.accent_success } else { p.text_tertiary };
-            ui.painter().add(egui::Shape::convex_polygon(
-                vec![
-                    egui::pos2(dn_c.x - 3.0, dn_c.y - 2.0),
-                    egui::pos2(dn_c.x + 3.0, dn_c.y - 2.0),
-                    egui::pos2(dn_c.x, dn_c.y + 2.5),
-                ],
-                dn_color,
-                egui::Stroke::NONE,
-            ));
-            ui.painter().text(egui::pos2(x + 29.0, cy), egui::Align2::LEFT_CENTER, &behind.to_string(), font, p.text_tertiary);
-        }
-        x += 44.0;
-
-        x = self.vsep(ui, p, x, cy);
-
         // Snapshot running state so we can disable the relevant button and inline the spinner.
         let (pull_running, push_running, net_progress, net_last_line) =
             match &state.network_status {

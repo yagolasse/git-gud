@@ -183,7 +183,7 @@ impl GitService {
         };
 
         let upstream_oid = match repo
-            .branch_upstream_name(head.shorthand().unwrap_or(""))
+            .branch_upstream_name(head.name().unwrap_or(""))
             .ok()
             .and_then(|name| name.as_str().map(|s| s.to_string()))
             .and_then(|name| repo.refname_to_id(&name).ok())
@@ -365,6 +365,18 @@ impl GitService {
             .map_err(|e| anyhow!("Branch '{}' not found: {}", name, e))?;
         branch.delete().map_err(|e| anyhow!("Failed to delete branch '{}': {}", name, e))?;
         log::info!("Branch '{}' deleted", name);
+        Ok(())
+    }
+
+    /// Rename a local branch
+    pub fn rename_branch(repo: &Repository, old_name: &str, new_name: &str) -> Result<()> {
+        let mut branch = repo
+            .find_branch(old_name, BranchType::Local)
+            .map_err(|e| anyhow!("Branch '{}' not found: {}", old_name, e))?;
+        branch
+            .rename(new_name, false)
+            .map_err(|e| anyhow!("Failed to rename branch '{}': {}", old_name, e))?;
+        log::info!("Branch '{}' renamed to '{}'", old_name, new_name);
         Ok(())
     }
 

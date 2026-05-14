@@ -75,10 +75,14 @@ impl BranchList {
 
         let stashes: Vec<crate::models::StashEntry> = state.repository_state().stashes.clone();
         let tags: Vec<crate::models::Tag> = state.repository_state().tags.clone();
+        let (ahead, behind) = state.repository_state.as_ref()
+            .map(|rs| (rs.ahead, rs.behind))
+            .unwrap_or((0, 0));
         let selected_branch = state.ui_state.selected_branch.clone();
         let mut branch_to_select: Option<String> = None;
         let mut branch_to_checkout: Option<String> = None;
         let mut branch_to_delete: Option<String> = None;
+        let mut branch_to_rename: Option<String> = None;
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
@@ -89,10 +93,12 @@ impl BranchList {
                 Self::show_section_header(ui, p, "BRANCHES", &mut self.branches_open, false);
                 if self.branches_open {
                     for branch in &local_branches {
-                        let (sel, chk, del) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0);
+                        let ab = if branch.is_current { (ahead, behind) } else { (0, 0) };
+                        let (sel, chk, del, ren) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0, &branch.name, ab);
                         if sel { branch_to_select = Some(branch.name.clone()); }
                         if chk { branch_to_checkout = Some(branch.name.clone()); }
                         if del { branch_to_delete = Some(branch.name.clone()); }
+                        if ren { branch_to_rename = Some(branch.name.clone()); }
                     }
                     if local_branches.is_empty() {
                         Self::show_empty_hint(ui, p, "No local branches", 22.0);
@@ -120,8 +126,10 @@ impl BranchList {
                             Self::show_remote_header(ui, p, remote_name, open, indent);
                             if *open {
                                 for branch in branches {
-                                    let (sel, chk, _del) =
-                                        Self::show_branch_row(ui, p, &selected_branch, branch, indent + 12.0);
+                                    let label = branch.name.split_once('/').map(|(_, r)| r).unwrap_or(&branch.name);
+                                    if label == "HEAD" { continue; }
+                                    let (sel, chk, _del, _ren) =
+                                        Self::show_branch_row(ui, p, &selected_branch, branch, indent + 12.0, label, (0, 0));
                                     if sel {
                                         branch_to_select = Some(branch.name.clone());
                                     }
@@ -184,6 +192,11 @@ impl BranchList {
                 Err(e) => state.set_error(format!("Failed to delete '{}': {}", name, e)),
             }
         }
+        if let Some(name) = branch_to_rename {
+            state.ui_state.rename_branch_old = name.clone();
+            state.ui_state.rename_branch_new = name;
+            state.ui_state.show_rename_branch_dialog = true;
+        }
         if let Some(index) = stash_to_pop {
             match state.repository_state_mut().stash_pop(index) {
                 Ok(()) => state.set_info("Stash applied and removed".to_string()),
@@ -240,6 +253,50 @@ impl BranchList {
             if do_cancel {
                 state.ui_state.show_create_branch_dialog = false;
                 state.ui_state.new_branch_name.clear();
+            }
+        }
+
+        // Rename branch dialog
+        if state.ui_state.show_rename_branch_dialog {
+            let ctx = ui.ctx().clone();
+            let mut do_rename = false;
+            let mut do_cancel = false;
+            let old_name = state.ui_state.rename_branch_old.clone();
+            egui::Window::new("Rename Branch")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label(format!("Rename \"{}\" to:", old_name));
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut state.ui_state.rename_branch_new)
+                            .desired_width(240.0),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        do_rename = true;
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let name_ok = !state.ui_state.rename_branch_new.trim().is_empty()
+                            && state.ui_state.rename_branch_new != old_name;
+                        if ui.add_enabled(name_ok, egui::Button::new("Rename")).clicked() {
+                            do_rename = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            do_cancel = true;
+                        }
+                    });
+                });
+            if do_rename && !state.ui_state.rename_branch_new.trim().is_empty() {
+                let new_name = state.ui_state.rename_branch_new.trim().to_string();
+                state.ui_state.show_rename_branch_dialog = false;
+                match state.repository_state_mut().rename_branch(&old_name, &new_name) {
+                    Ok(()) => state.set_info(format!("Branch renamed to '{}'", new_name)),
+                    Err(e) => state.set_error(format!("Failed to rename branch: {}", e)),
+                }
+            }
+            if do_cancel {
+                state.ui_state.show_rename_branch_dialog = false;
             }
         }
 
@@ -438,7 +495,9 @@ impl BranchList {
         selected_branch: &Option<String>,
         branch: &crate::models::Branch,
         indent: f32,
-    ) -> (bool, bool, bool) {
+        label: &str,
+        ahead_behind: (usize, usize),
+    ) -> (bool, bool, bool, bool) {
         let is_selected = selected_branch.as_ref() == Some(&branch.name);
         let available_width = ui.available_width();
         let (rect, response) =
@@ -467,14 +526,50 @@ impl BranchList {
             ui.painter().text(
                 egui::pos2(x, y),
                 egui::Align2::LEFT_CENTER,
-                &branch.name,
+                label,
                 font,
                 text_color,
             );
+
+            let (ahead, behind) = ahead_behind;
+            if branch.is_current && (ahead > 0 || behind > 0) {
+                let sf = egui::FontId::proportional(10.0);
+                let mut rx = rect.max.x - 6.0;
+
+                let behind_str = behind.to_string();
+                let bw = ui.fonts(|f| f.layout_no_wrap(behind_str.clone(), sf.clone(), egui::Color32::WHITE).size().x);
+                let dn_color = if behind > 0 { p.accent_success } else { p.text_tertiary };
+                ui.painter().text(egui::pos2(rx - bw, y), egui::Align2::LEFT_CENTER, &behind_str, sf.clone(), p.text_tertiary);
+                rx -= bw + 2.0;
+                ui.painter().add(egui::Shape::convex_polygon(
+                    vec![
+                        egui::pos2(rx - 3.0, y - 2.0),
+                        egui::pos2(rx + 3.0, y - 2.0),
+                        egui::pos2(rx, y + 2.5),
+                    ],
+                    dn_color, egui::Stroke::NONE,
+                ));
+                rx -= 10.0;
+
+                let ahead_str = ahead.to_string();
+                let aw = ui.fonts(|f| f.layout_no_wrap(ahead_str.clone(), sf.clone(), egui::Color32::WHITE).size().x);
+                let up_color = if ahead > 0 { p.accent_success } else { p.text_tertiary };
+                ui.painter().text(egui::pos2(rx - aw, y), egui::Align2::LEFT_CENTER, &ahead_str, sf.clone(), p.text_tertiary);
+                rx -= aw + 2.0;
+                ui.painter().add(egui::Shape::convex_polygon(
+                    vec![
+                        egui::pos2(rx - 3.0, y + 2.0),
+                        egui::pos2(rx + 3.0, y + 2.0),
+                        egui::pos2(rx, y - 2.5),
+                    ],
+                    up_color, egui::Stroke::NONE,
+                ));
+            }
         }
 
         let checkout_from_menu = Cell::new(false);
         let delete_from_menu = Cell::new(false);
+        let rename_from_menu = Cell::new(false);
         response.context_menu(|ui| {
             if !branch.is_current && ui.button("Checkout").clicked() {
                 checkout_from_menu.set(true);
@@ -483,6 +578,12 @@ impl BranchList {
             if ui.button("Copy name").clicked() {
                 ui.output_mut(|o| o.copied_text = branch.name.clone());
                 ui.close_menu();
+            }
+            if !branch.is_remote {
+                if ui.button("Rename").clicked() {
+                    rename_from_menu.set(true);
+                    ui.close_menu();
+                }
             }
             ui.separator();
             if branch.is_current {
@@ -494,7 +595,7 @@ impl BranchList {
         });
 
         let checkout = (response.double_clicked() || checkout_from_menu.get()) && !branch.is_current;
-        (response.clicked(), checkout, delete_from_menu.get())
+        (response.clicked(), checkout, delete_from_menu.get(), rename_from_menu.get())
     }
 
     /// Returns `Some((pop_clicked, drop_clicked))` for the given stash row

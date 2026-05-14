@@ -46,6 +46,11 @@ pub struct UIState {
     pub new_branch_name: String,
     pub new_branch_checkout: bool,
 
+    /// Rename-branch dialog visibility and input
+    pub show_rename_branch_dialog: bool,
+    pub rename_branch_old: String,
+    pub rename_branch_new: String,
+
     /// Stash-save dialog visibility and input
     pub show_stash_save_dialog: bool,
     pub stash_message: String,
@@ -77,6 +82,9 @@ impl UIState {
             show_create_branch_dialog: false,
             new_branch_name: String::new(),
             new_branch_checkout: true,
+            show_rename_branch_dialog: false,
+            rename_branch_old: String::new(),
+            rename_branch_new: String::new(),
             show_stash_save_dialog: false,
             stash_message: String::new(),
             show_create_tag_dialog: false,
@@ -174,5 +182,92 @@ impl UIState {
         self.clear_commit_message();
         self.pending_action = None;
         self.files_staged_or_unstaged = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_commit_message_summary_only() {
+        let mut s = UIState::new();
+        s.commit_summary = "Add feature".to_string();
+        assert_eq!(s.commit_message(), "Add feature");
+    }
+
+    #[test]
+    fn test_commit_message_with_description() {
+        let mut s = UIState::new();
+        s.commit_summary = "Add feature".to_string();
+        s.commit_description = "More details here.".to_string();
+        assert_eq!(s.commit_message(), "Add feature\n\nMore details here.");
+    }
+
+    #[test]
+    fn test_set_commit_message_single_line() {
+        let mut s = UIState::new();
+        s.set_commit_message("Fix bug");
+        assert_eq!(s.commit_summary, "Fix bug");
+        assert!(s.commit_description.is_empty());
+    }
+
+    #[test]
+    fn test_set_commit_message_multiline() {
+        let mut s = UIState::new();
+        s.set_commit_message("Fix bug\n\nDetailed explanation.");
+        assert_eq!(s.commit_summary, "Fix bug");
+        assert_eq!(s.commit_description, "Detailed explanation.");
+    }
+
+    #[test]
+    fn test_is_commit_message_valid_empty() {
+        let s = UIState::new();
+        assert!(!s.is_commit_message_valid());
+    }
+
+    #[test]
+    fn test_is_commit_message_valid_whitespace_only() {
+        let mut s = UIState::new();
+        s.commit_summary = "   ".to_string();
+        assert!(!s.is_commit_message_valid());
+    }
+
+    #[test]
+    fn test_is_commit_message_valid() {
+        let mut s = UIState::new();
+        s.commit_summary = "Valid summary".to_string();
+        assert!(s.is_commit_message_valid());
+    }
+
+    #[test]
+    fn test_branch_selection_cycle() {
+        let mut s = UIState::new();
+        assert!(!s.has_branch_selection());
+        s.select_branch("main".to_string());
+        assert!(s.has_branch_selection());
+        assert_eq!(s.selected_branch_name(), Some("main"));
+        s.clear_branch_selection();
+        assert!(!s.has_branch_selection());
+        assert_eq!(s.selected_branch_name(), None);
+    }
+
+    #[test]
+    fn test_staged_unstaged_flag() {
+        let mut s = UIState::new();
+        assert!(!s.check_and_reset_staged_unstaged());
+        s.mark_files_staged_or_unstaged();
+        assert!(s.check_and_reset_staged_unstaged());
+        assert!(!s.check_and_reset_staged_unstaged());
+    }
+
+    #[test]
+    fn test_clear_commit_message() {
+        let mut s = UIState::new();
+        s.commit_summary = "Some message".to_string();
+        s.commit_description = "Body".to_string();
+        s.clear_commit_message();
+        assert!(s.commit_summary.is_empty());
+        assert!(s.commit_description.is_empty());
     }
 }

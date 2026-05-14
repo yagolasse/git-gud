@@ -221,6 +221,13 @@ impl RepositoryState {
         Ok(())
     }
 
+    /// Rename a local branch
+    pub fn rename_branch(&mut self, old_name: &str, new_name: &str) -> anyhow::Result<()> {
+        services::GitService::rename_branch(&self.repository, old_name, new_name)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     /// Create a new local branch
     pub fn create_branch(&mut self, name: &str, checkout: bool) -> anyhow::Result<()> {
         services::GitService::create_branch(&self.repository, name, checkout)?;

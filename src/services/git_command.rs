@@ -246,6 +246,77 @@ pub async fn run_async(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_auth_publickey() {
+        let err = classify("Permission denied (publickey).", 1);
+        assert!(matches!(err, GitCommandError::Auth(_)));
+    }
+
+    #[test]
+    fn test_classify_auth_password() {
+        let err = classify("Permission denied (password).", 1);
+        assert!(matches!(err, GitCommandError::Auth(_)));
+    }
+
+    #[test]
+    fn test_classify_auth_host_key() {
+        let err = classify("Host key verification failed.", 1);
+        assert!(matches!(err, GitCommandError::Auth(_)));
+    }
+
+    #[test]
+    fn test_classify_network_resolve() {
+        let err = classify("Could not resolve host: github.com", 1);
+        assert!(matches!(err, GitCommandError::Network(_)));
+    }
+
+    #[test]
+    fn test_classify_network_refused() {
+        let err = classify("fatal: Connection refused", 1);
+        assert!(matches!(err, GitCommandError::Network(_)));
+    }
+
+    #[test]
+    fn test_classify_remote_rejected() {
+        let err = classify("! [rejected] main -> main (non-fast-forward)", 1);
+        assert!(matches!(err, GitCommandError::RemoteRejected(_)));
+    }
+
+    #[test]
+    fn test_classify_remote_rejected_nff_only() {
+        let err = classify("Updates were rejected because the tip of your current branch is behind its remote counterpart. non-fast-forward", 1);
+        assert!(matches!(err, GitCommandError::RemoteRejected(_)));
+    }
+
+    #[test]
+    fn test_classify_exit_unknown() {
+        let err = classify("Some unknown git error occurred", 128);
+        assert!(matches!(err, GitCommandError::Exit(128, _)));
+    }
+
+    #[test]
+    fn test_classify_transport_on_zero_exit() {
+        let err = classify("Some ambiguous message", 0);
+        assert!(matches!(err, GitCommandError::Transport(_)));
+    }
+
+    #[test]
+    fn test_error_message_accessible() {
+        let err = classify("Permission denied (publickey).", 1);
+        assert!(!err.message().is_empty());
+    }
+
+    #[test]
+    fn test_is_auth() {
+        assert!(classify("Permission denied (publickey).", 1).is_auth());
+        assert!(!classify("Could not resolve host: github.com", 1).is_auth());
+    }
+}
+
 /// Run a git command asynchronously and stream lines as they arrive.
 /// Returns a receiver for (line, is_stderr) pairs.
 #[allow(dead_code)]

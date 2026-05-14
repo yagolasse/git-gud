@@ -58,3 +58,51 @@ impl Default for AppPrefs {
         Self { dark_mode: false, last_repo: None }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_round_trip_dark_mode() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("prefs.txt");
+        let prefs = AppPrefs { dark_mode: true, last_repo: None };
+        prefs.save_to_file(&path).unwrap();
+        let loaded = AppPrefs::load_from_file(&path).unwrap();
+        assert!(loaded.dark_mode);
+        assert!(loaded.last_repo.is_none());
+    }
+
+    #[test]
+    fn test_round_trip_last_repo() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("prefs.txt");
+        let repo_path = PathBuf::from("/some/repo/path");
+        let prefs = AppPrefs { dark_mode: false, last_repo: Some(repo_path.clone()) };
+        prefs.save_to_file(&path).unwrap();
+        let loaded = AppPrefs::load_from_file(&path).unwrap();
+        assert!(!loaded.dark_mode);
+        assert_eq!(loaded.last_repo, Some(repo_path));
+    }
+
+    #[test]
+    fn test_load_nonexistent_falls_back_to_default() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.txt");
+        let prefs = AppPrefs::load_from_file(&path).unwrap_or_default();
+        assert!(!prefs.dark_mode);
+        assert!(prefs.last_repo.is_none());
+    }
+
+    #[test]
+    fn test_round_trip_dark_mode_false() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("prefs.txt");
+        let prefs = AppPrefs { dark_mode: false, last_repo: None };
+        prefs.save_to_file(&path).unwrap();
+        let loaded = AppPrefs::load_from_file(&path).unwrap();
+        assert!(!loaded.dark_mode);
+    }
+}
