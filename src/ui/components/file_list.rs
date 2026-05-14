@@ -220,7 +220,7 @@ impl FileList {
             };
             ui.painter().rect_filled(rect, 0.0, bg);
 
-            let (badge_letter, badge_color) = status_badge(&file.status, p);
+            let (badge_letter, badge_color) = status_badge(file, p);
 
             let dot_x = rect.min.x + 22.0;
             ui.painter().circle_filled(egui::pos2(dot_x, y), 3.5, extension_color(&file.path, p));
@@ -322,17 +322,23 @@ impl Default for FileList {
     }
 }
 
-fn status_badge<'a>(status: &FileStatus, p: &'a Palette) -> (&'static str, egui::Color32) {
-    match status {
-        FileStatus::Modified    => ("M", p.status_modified),
-        FileStatus::Added       => ("A", p.status_added),
-        FileStatus::Deleted     => ("D", p.status_deleted),
-        FileStatus::Untracked   => ("U", p.status_added),
-        FileStatus::Renamed     => ("R", p.status_modified),
-        FileStatus::Copied      => ("C", p.status_added),
-        FileStatus::Ignored     => ("I", p.text_tertiary),
-        FileStatus::Unmodified  => ("·", p.text_tertiary),
-        FileStatus::Conflicted  => ("!", p.status_deleted),
+fn status_badge(file: &FileChange, p: &Palette) -> (String, egui::Color32) {
+    match file.status {
+        FileStatus::Modified    => ("M".into(), p.status_modified),
+        FileStatus::Added       => ("A".into(), p.status_added),
+        FileStatus::Deleted     => ("D".into(), p.status_deleted),
+        FileStatus::Untracked   => ("U".into(), p.status_added),
+        FileStatus::Renamed     => ("R".into(), p.status_modified),
+        FileStatus::Copied      => ("C".into(), p.status_added),
+        FileStatus::Ignored     => ("I".into(), p.text_tertiary),
+        FileStatus::Unmodified  => ("·".into(), p.text_tertiary),
+        FileStatus::Conflicted  => {
+            let label = file.conflict_count
+                .filter(|&n| n > 0)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "!".into());
+            (label, p.status_deleted)
+        }
     }
 }
 

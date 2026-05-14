@@ -1,4 +1,4 @@
-use crate::models::diff::{DiffConfig, DiffDisplayMode, LineChangeType, SideBySideDiff, UnifiedDiff};
+use crate::models::diff::{DiffConfig, DiffDisplayMode, DiffLine, LineChangeType, SideBySideDiff, UnifiedDiff};
 use crate::services::{DiffParser, SyntaxService};
 use crate::state::AppState;
 use crate::ui::colors::Palette;
@@ -99,13 +99,17 @@ impl EnhancedDiffViewer {
         Self::show_header_bar(ui, p, &selected_file, status_badge, added_lines, removed_lines);
         self.show_action_bar(ui, p);
 
-        match self.config.mode {
+        let pending = match self.config.mode {
             DiffDisplayMode::Unified | DiffDisplayMode::WordLevel => {
-                self.show_unified_view(ui, p, &selected_file);
+                self.show_unified_view(ui, p, &selected_file)
             }
             DiffDisplayMode::SideBySide => {
                 self.show_side_by_side_view(ui, p, &selected_file);
+                None
             }
+        };
+        if let Some(action) = pending {
+            state.ui_state.pending_action = Some(action);
         }
     }
 
@@ -240,7 +244,7 @@ impl EnhancedDiffViewer {
         paint_gear(ui.painter(), gear_rect.center(), if gear_resp.hovered() { p.text_primary } else { p.text_secondary });
     }
 
-    fn show_unified_view(&mut self, ui: &mut egui::Ui, p: &'static Palette, file_path: &std::path::Path) {
+    fn show_unified_view(&mut self, ui: &mut egui::Ui, p: &'static Palette, file_path: &std::path::Path) -> Option<crate::state::PendingAction> {
         let content_rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(content_rect, 0.0, p.diff_content_bg);
 
@@ -248,23 +252,24 @@ impl EnhancedDiffViewer {
             Some(ud) if ud.is_binary => {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("Binary file").color(p.diff_context_text));
-                return;
+                return None;
             }
             Some(ud) if ud.lines.is_empty() => {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("No changes").color(p.diff_context_text));
-                return;
+                return None;
             }
             Some(ud) => &ud.lines[..],
             None => {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("No diff loaded").color(p.diff_context_text));
-                return;
+                return None;
             }
         };
 
         let syntax_svc = std::sync::Arc::clone(&self.syntax_service);
         let file_path_owned = file_path.to_path_buf();
+        let mut pending: Option<crate::state::PendingAction> = None;
 
         egui::ScrollArea::vertical()
             .id_salt(egui::Id::new("unified_diff").with(file_path))
@@ -272,14 +277,18 @@ impl EnhancedDiffViewer {
             .show_rows(ui, ROW_HEIGHT, lines.len(), |ui, row_range| {
                 let syntax = syntax_svc.detect_syntax(&file_path_owned);
                 for i in row_range {
-                    let job = if !lines[i].content.is_empty() {
+                    let job = if !lines[i].content.is_empty() && lines[i].change_type != LineChangeType::ConflictSeparator {
                         Some(syntax_svc.highlight_line(&lines[i].content, syntax))
                     } else {
                         None
                     };
-                    Self::show_diff_row(ui, p, &lines[i], job);
+                    if let Some(action) = Self::show_diff_row(ui, p, &lines[i], job, &file_path_owned) {
+                        pending = Some(action);
+                    }
                 }
             });
+
+        pending
     }
 
     fn show_diff_row(
@@ -287,23 +296,26 @@ impl EnhancedDiffViewer {
         p: &Palette,
         line: &crate::models::diff::DiffLine,
         highlight: Option<egui::text::LayoutJob>,
-    ) {
+        file_path: &std::path::Path,
+    ) -> Option<crate::state::PendingAction> {
+        let is_conflict_sep = line.change_type == LineChangeType::ConflictSeparator;
+        // Conflict separator rows are taller to accommodate the Accept buttons
+        let row_h = if is_conflict_sep { 22.0 } else { ROW_HEIGHT };
         let available_width = ui.available_width();
         let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(available_width, ROW_HEIGHT), egui::Sense::hover());
+            ui.allocate_exact_size(egui::vec2(available_width, row_h), egui::Sense::hover());
 
-        if !ui.is_rect_visible(rect) { return; }
+        if !ui.is_rect_visible(rect) { return None; }
 
         let (bg, gutter_bg, text_color) = row_colors(&line.change_type, p);
 
-        // Painter clipped to this row to prevent text from bleeding into adjacent columns
         let painter = ui.painter().with_clip_rect(rect);
 
         if bg != egui::Color32::TRANSPARENT {
             painter.rect_filled(rect, 0.0, bg);
         }
         if gutter_bg != egui::Color32::TRANSPARENT {
-            let gutter_rect = egui::Rect::from_min_size(rect.min, egui::vec2(GUTTER_TOTAL, ROW_HEIGHT));
+            let gutter_rect = egui::Rect::from_min_size(rect.min, egui::vec2(GUTTER_TOTAL, row_h));
             painter.rect_filled(gutter_rect, 0.0, gutter_bg);
         }
 
@@ -324,7 +336,7 @@ impl EnhancedDiffViewer {
                 n.to_string(), mono.clone(), p.text_tertiary,
             );
         }
-        if line.prefix != ' ' {
+        if line.prefix != ' ' && !is_conflict_sep {
             let pfx_color = match line.change_type {
                 LineChangeType::Added   => p.diff_add_text,
                 LineChangeType::Removed => p.diff_rem_text,
@@ -336,12 +348,54 @@ impl EnhancedDiffViewer {
                 line.prefix.to_string(), mono.clone(), pfx_color,
             );
         }
+
+        // For conflict separator lines that start with "<<<<<<<", render Accept buttons
+        if is_conflict_sep && line.content.starts_with("<<<") {
+            painter.text(
+                egui::pos2(rect.min.x + GUTTER_TOTAL + 4.0, y),
+                egui::Align2::LEFT_CENTER,
+                &line.content, mono.clone(), text_color,
+            );
+            let btn_font = egui::FontId::proportional(10.0);
+            let btn_h = 16.0;
+            let ours_label = "Accept Ours";
+            let theirs_label = "Accept Theirs";
+            let ours_w = ui.fonts(|f| f.layout_no_wrap(ours_label.into(), btn_font.clone(), p.text_primary).size().x) + 10.0;
+            let theirs_w = ui.fonts(|f| f.layout_no_wrap(theirs_label.into(), btn_font.clone(), p.text_primary).size().x) + 10.0;
+            let theirs_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.max.x - theirs_w - 4.0, y - btn_h / 2.0),
+                egui::vec2(theirs_w, btn_h),
+            );
+            let ours_rect = egui::Rect::from_min_size(
+                egui::pos2(theirs_rect.min.x - ours_w - 4.0, y - btn_h / 2.0),
+                egui::vec2(ours_w, btn_h),
+            );
+            let ours_id = ui.id().with("ours").with(line.left_line_num);
+            let theirs_id = ui.id().with("theirs").with(line.left_line_num);
+            let ours_resp = ui.interact(ours_rect, ours_id, egui::Sense::click());
+            let theirs_resp = ui.interact(theirs_rect, theirs_id, egui::Sense::click());
+            let painter2 = ui.painter();
+            painter2.rect_filled(ours_rect, 3.0, if ours_resp.hovered() { p.diff_add_bg } else { p.bg_tertiary });
+            painter2.rect_stroke(ours_rect, 3.0, egui::Stroke::new(0.5, p.border));
+            painter2.text(ours_rect.center(), egui::Align2::CENTER_CENTER, ours_label, btn_font.clone(), p.text_primary);
+            painter2.rect_filled(theirs_rect, 3.0, if theirs_resp.hovered() { p.diff_rem_bg } else { p.bg_tertiary });
+            painter2.rect_stroke(theirs_rect, 3.0, egui::Stroke::new(0.5, p.border));
+            painter2.text(theirs_rect.center(), egui::Align2::CENTER_CENTER, theirs_label, btn_font, p.text_primary);
+            if ours_resp.clicked() {
+                return Some(crate::state::PendingAction::ResolveOurs(file_path.to_path_buf()));
+            }
+            if theirs_resp.clicked() {
+                return Some(crate::state::PendingAction::ResolveTheirs(file_path.to_path_buf()));
+            }
+            return None;
+        }
+
         if !line.content.is_empty() {
             if let Some(job) = highlight {
                 let galley = ui.fonts(|f| f.layout_job(job));
                 let pos = egui::pos2(
                     rect.min.x + GUTTER_TOTAL + 2.0,
-                    rect.min.y + (ROW_HEIGHT - galley.size().y) / 2.0,
+                    rect.min.y + (row_h - galley.size().y) / 2.0,
                 );
                 painter.galley(pos, galley, text_color);
             } else {
@@ -352,6 +406,8 @@ impl EnhancedDiffViewer {
                 );
             }
         }
+
+        None
     }
 
     fn show_side_by_side_view(&mut self, ui: &mut egui::Ui, p: &'static Palette, file_path: &std::path::Path) {
@@ -386,6 +442,7 @@ impl EnhancedDiffViewer {
 
         ui.columns(2, |columns| {
             let fp = file_path_owned.clone();
+            let fp2 = file_path_owned.clone();
             let left_out = egui::ScrollArea::vertical()
                 .id_salt(left_id)
                 .auto_shrink([false, false])
@@ -397,7 +454,7 @@ impl EnhancedDiffViewer {
                         } else {
                             None
                         };
-                        Self::show_diff_row(ui, p, &left_lines[i], job);
+                        Self::show_diff_row(ui, p, &left_lines[i], job, &fp);
                     }
                 });
             new_sync_y = left_out.state.offset.y;
@@ -416,7 +473,7 @@ impl EnhancedDiffViewer {
                     } else {
                         None
                     };
-                    Self::show_diff_row(ui, p, &right_lines[i], job);
+                    Self::show_diff_row(ui, p, &right_lines[i], job, &fp2);
                 }
             });
         });
@@ -434,6 +491,28 @@ impl EnhancedDiffViewer {
         let selected_file = state.ui_state.selected_file_path().unwrap().to_path_buf();
 
         if let Some(repo_state) = &state.repository_state {
+            let is_conflicted = repo_state.unstaged_files.iter()
+                .any(|f| f.path == selected_file && f.status == crate::models::FileStatus::Conflicted);
+
+            if is_conflicted {
+                let abs = repo_state.repository.workdir()
+                    .map(|wd| wd.join(&selected_file));
+                let unified = abs
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .map(|raw| parse_conflict_file(&raw))
+                    .unwrap_or_else(|| UnifiedDiff {
+                        lines: Vec::new(),
+                        old_file_path: None,
+                        new_file_path: None,
+                        is_binary: false,
+                        lines_added: 0,
+                        lines_removed: 0,
+                    });
+                self.unified_diff = Some(unified);
+                self.side_by_side_diff = None;
+                return;
+            }
+
             match crate::services::GitService::get_file_diff(&repo_state.repository, &selected_file) {
                 Ok(diff_text) => {
                     let unified = self.diff_parser.parse_unified(&diff_text);
@@ -490,6 +569,46 @@ fn row_colors(
         LineChangeType::HunkHeader | LineChangeType::FileHeader => {
             (p.diff_hunk_bg, p.diff_hunk_bg, p.diff_hunk_text)
         }
+        LineChangeType::ConflictOurs => (p.diff_add_bg, p.diff_add_gutter, p.diff_add_text),
+        LineChangeType::ConflictTheirs => (p.diff_rem_bg, p.diff_rem_gutter, p.diff_rem_text),
+        LineChangeType::ConflictSeparator => (p.diff_hunk_bg, p.diff_hunk_bg, p.diff_hunk_text),
         _ => (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT, p.diff_context_text),
+    }
+}
+
+/// Parse a raw file with conflict markers into a UnifiedDiff for display.
+fn parse_conflict_file(raw: &str) -> UnifiedDiff {
+    let mut lines = Vec::new();
+    #[derive(PartialEq)]
+    enum Side { Context, Ours, Theirs }
+    let mut side = Side::Context;
+    for (i, text) in raw.lines().enumerate() {
+        let ln = i + 1;
+        let (change_type, content) = if text.starts_with("<<<<<<<") {
+            side = Side::Ours;
+            (LineChangeType::ConflictSeparator, text.to_owned())
+        // TODO: handle diff3 ||||||| markers (merge.conflictstyle = diff3)
+        } else if text.starts_with("=======") {
+            side = Side::Theirs;
+            (LineChangeType::ConflictSeparator, text.to_owned())
+        } else if text.starts_with(">>>>>>>") {
+            side = Side::Context;
+            (LineChangeType::ConflictSeparator, text.to_owned())
+        } else {
+            match side {
+                Side::Ours    => (LineChangeType::ConflictOurs,   text.to_owned()),
+                Side::Theirs  => (LineChangeType::ConflictTheirs, text.to_owned()),
+                Side::Context => (LineChangeType::Unchanged,       text.to_owned()),
+            }
+        };
+        lines.push(DiffLine::new(Some(ln), Some(ln), content, change_type, ' '));
+    }
+    UnifiedDiff {
+        lines,
+        old_file_path: None,
+        new_file_path: None,
+        is_binary: false,
+        lines_added: 0,
+        lines_removed: 0,
     }
 }

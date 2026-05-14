@@ -28,6 +28,15 @@ pub enum LineChangeType {
 
     /// No newline at end of file indicator
     NoNewline,
+
+    /// Lines from our side of a merge conflict (between <<<<<<< and =======)
+    ConflictOurs,
+
+    /// Lines from their side of a merge conflict (between ======= and >>>>>>>)
+    ConflictTheirs,
+
+    /// A conflict marker line itself (<<<<<<< / ======= / >>>>>>>)
+    ConflictSeparator,
 }
 
 /// Word-level change within a line

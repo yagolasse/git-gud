@@ -395,6 +395,18 @@ impl AppState {
                         Err(e) => self.set_error(format!("Failed to push tag '{}': {}", tag_name, e)),
                     }
                 }
+                super::ui_state::PendingAction::ResolveOurs(path) => {
+                    match self.repository_state_mut().resolve_ours(&path) {
+                        Ok(()) => self.set_info(format!("Resolved '{}' using ours", path.display())),
+                        Err(e) => self.set_error(format!("Resolve failed: {}", e)),
+                    }
+                }
+                super::ui_state::PendingAction::ResolveTheirs(path) => {
+                    match self.repository_state_mut().resolve_theirs(&path) {
+                        Ok(()) => self.set_info(format!("Resolved '{}' using theirs", path.display())),
+                        Err(e) => self.set_error(format!("Resolve failed: {}", e)),
+                    }
+                }
             }
             self.validate_file_selection();
         }

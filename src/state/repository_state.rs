@@ -131,7 +131,19 @@ impl RepositoryState {
 
     /// Load file status (unstaged and staged files)
     fn load_file_status(&mut self) -> anyhow::Result<()> {
-        let (unstaged, staged) = services::GitService::get_status(&self.repository)?;
+        let (mut unstaged, staged) = services::GitService::get_status(&self.repository)?;
+        // Populate conflict_count for conflicted files
+        if let Some(workdir) = self.repository.workdir() {
+            for file in unstaged.iter_mut() {
+                if file.status == crate::models::FileStatus::Conflicted {
+                    let abs = workdir.join(&file.path);
+                    let count = std::fs::read_to_string(&abs)
+                        .map(|s| s.lines().filter(|l| l.starts_with("<<<<<<<")).count())
+                        .unwrap_or(0);
+                    file.conflict_count = Some(count);
+                }
+            }
+        }
         self.unstaged_files = unstaged;
         self.staged_files = staged;
         log::debug!(
@@ -289,6 +301,18 @@ impl RepositoryState {
 
     pub fn cherry_pick_skip(&mut self) -> anyhow::Result<()> {
         services::GitService::cherry_pick_skip(&self.repository)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn resolve_ours(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        services::GitService::resolve_conflict_ours(&self.repository, path)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn resolve_theirs(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        services::GitService::resolve_conflict_theirs(&self.repository, path)?;
         self.refresh()?;
         Ok(())
     }

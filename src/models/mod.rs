@@ -55,6 +55,9 @@ pub struct FileChange {
     pub path: PathBuf,
     pub status: FileStatus,
     pub diff: Option<String>,
+    /// Number of unresolved conflict hunks; None when not conflicted
+    #[serde(default)]
+    pub conflict_count: Option<usize>,
 }
 
 /// A single stash entry
@@ -173,6 +176,7 @@ mod tests {
             path: Path::new("src/main.rs").to_path_buf(),
             status: FileStatus::Modified,
             diff: Some("--- a/src/main.rs\n+++ b/src/main.rs".to_string()),
+            conflict_count: None,
         };
 
         let json = serde_json::to_string(&file_change).unwrap();
@@ -189,6 +193,7 @@ mod tests {
             path: Path::new("README.md").to_path_buf(),
             status: FileStatus::Untracked,
             diff: None,
+            conflict_count: None,
         };
 
         let json = serde_json::to_string(&file_change).unwrap();

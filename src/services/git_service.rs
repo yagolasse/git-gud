@@ -77,6 +77,7 @@ impl GitService {
                     path: PathBuf::from(&path),
                     status: models::FileStatus::Conflicted,
                     diff: None,
+                    conflict_count: None,
                 });
                 continue;
             }
@@ -113,7 +114,8 @@ impl GitService {
             let file_change = models::FileChange {
                 path: PathBuf::from(path),
                 status: file_status,
-                diff: None, // Will be loaded lazily when needed
+                diff: None,
+                conflict_count: None,
             };
 
             // Add to appropriate list
@@ -629,6 +631,28 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", "--skip"])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    pub fn resolve_conflict_ours(repo: &Repository, path: &std::path::Path) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        let path_str = path.to_string_lossy();
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["checkout", "--ours", &path_str])
+            .map_err(|e| anyhow!("{}", e))?;
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["add", &path_str])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    pub fn resolve_conflict_theirs(repo: &Repository, path: &std::path::Path) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        let path_str = path.to_string_lossy();
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["checkout", "--theirs", &path_str])
+            .map_err(|e| anyhow!("{}", e))?;
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["add", &path_str])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }

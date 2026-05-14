@@ -18,6 +18,8 @@ impl CommitPanel {
         ui.separator();
 
         let staged_count = state.repository_state().staged_files.len();
+        let has_conflicts = state.repository_state().unstaged_files.iter()
+            .any(|f| f.status == crate::models::FileStatus::Conflicted);
 
         ui.add(
             egui::TextEdit::singleline(&mut state.ui_state.commit_summary)
@@ -48,6 +50,15 @@ impl CommitPanel {
 
         ui.add_space(2.0);
 
+        if has_conflicts {
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("Resolve conflicts before committing")
+                    .color(p.status_deleted)
+                    .small(),
+            );
+        }
+
         ui.horizontal(|ui| {
             let checkbox_resp = ui.checkbox(&mut self.amend, "Amend");
             if checkbox_resp.changed() && self.amend {
@@ -55,7 +66,9 @@ impl CommitPanel {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let commit_enabled = if self.amend {
+                let commit_enabled = if has_conflicts {
+                    false
+                } else if self.amend {
                     state.ui_state.is_commit_message_valid()
                 } else {
                     staged_count > 0 && state.ui_state.is_commit_message_valid()

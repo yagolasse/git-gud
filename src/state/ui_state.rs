@@ -13,6 +13,8 @@ pub enum PendingAction {
     Push,
     Fetch,
     PushTag(String),
+    ResolveOurs(std::path::PathBuf),
+    ResolveTheirs(std::path::PathBuf),
 }
 
 /// UI-specific state
