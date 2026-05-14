@@ -46,6 +46,7 @@ pub enum FileStatus {
     Copied,
     Untracked,
     Ignored,
+    Conflicted,
 }
 
 /// File change information
@@ -152,6 +153,7 @@ mod tests {
             FileStatus::Copied,
             FileStatus::Untracked,
             FileStatus::Ignored,
+            FileStatus::Conflicted,
         ];
 
         for (_i, variant) in variants.iter().enumerate() {

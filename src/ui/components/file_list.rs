@@ -257,7 +257,8 @@ impl FileList {
                 }
             }
 
-            if hovered {
+            let can_stage = file.status != FileStatus::Conflicted;
+            if hovered && can_stage {
                 let action_char = if is_staged { "-" } else { "+" };
                 ui.painter().rect_filled(
                     btn_rect,
@@ -289,10 +290,13 @@ impl FileList {
         }
 
         let action_from_menu = Cell::new(false);
+        let can_stage = file.status != FileStatus::Conflicted;
         response.context_menu(|ui| {
-            if ui.button(if is_staged { "Unstage" } else { "Stage" }).clicked() {
-                action_from_menu.set(true);
-                ui.close_menu();
+            if can_stage {
+                if ui.button(if is_staged { "Unstage" } else { "Stage" }).clicked() {
+                    action_from_menu.set(true);
+                    ui.close_menu();
+                }
             }
             if ui.button("Copy path").clicked() {
                 ui.output_mut(|o| o.copied_text = file.path.to_string_lossy().to_string());
@@ -300,7 +304,7 @@ impl FileList {
             }
         });
 
-        let action = btn.clicked() || action_from_menu.get();
+        let action = (btn.clicked() || action_from_menu.get()) && can_stage;
         (response.clicked() && !btn.clicked(), action)
     }
 
@@ -320,14 +324,15 @@ impl Default for FileList {
 
 fn status_badge<'a>(status: &FileStatus, p: &'a Palette) -> (&'static str, egui::Color32) {
     match status {
-        FileStatus::Modified  => ("M", p.status_modified),
-        FileStatus::Added     => ("A", p.status_added),
-        FileStatus::Deleted   => ("D", p.status_deleted),
-        FileStatus::Untracked => ("U", p.status_added),
-        FileStatus::Renamed   => ("R", p.status_modified),
-        FileStatus::Copied    => ("C", p.status_added),
-        FileStatus::Ignored   => ("I", p.text_tertiary),
-        FileStatus::Unmodified => ("·", p.text_tertiary),
+        FileStatus::Modified    => ("M", p.status_modified),
+        FileStatus::Added       => ("A", p.status_added),
+        FileStatus::Deleted     => ("D", p.status_deleted),
+        FileStatus::Untracked   => ("U", p.status_added),
+        FileStatus::Renamed     => ("R", p.status_modified),
+        FileStatus::Copied      => ("C", p.status_added),
+        FileStatus::Ignored     => ("I", p.text_tertiary),
+        FileStatus::Unmodified  => ("·", p.text_tertiary),
+        FileStatus::Conflicted  => ("!", p.status_deleted),
     }
 }
 

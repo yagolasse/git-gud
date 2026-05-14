@@ -71,6 +71,16 @@ impl GitService {
                     | Status::WT_TYPECHANGE,
             );
 
+            // Conflicted files take priority — show them before any other classification
+            if status.contains(Status::CONFLICTED) {
+                unstaged_files.push(models::FileChange {
+                    path: PathBuf::from(&path),
+                    status: models::FileStatus::Conflicted,
+                    diff: None,
+                });
+                continue;
+            }
+
             // Convert git2 status to our FileStatus
             let file_status = if status.contains(Status::WT_NEW)
                 || status.contains(Status::INDEX_NEW)

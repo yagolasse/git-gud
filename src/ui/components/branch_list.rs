@@ -183,7 +183,13 @@ impl BranchList {
         }
         if let Some(name) = branch_to_checkout {
             if let Err(e) = state.repository_state_mut().checkout_branch(&name) {
-                state.set_error(format!("Failed to checkout {}: {}", name, e));
+                let msg = e.to_string().to_lowercase();
+                let display = if msg.contains("conflict") {
+                    format!("Cannot checkout '{}': resolve conflicts first (see Changes panel)", name)
+                } else {
+                    format!("Failed to checkout {}: {}", name, e)
+                };
+                state.set_error(display);
             } else {
                 state.set_info(format!("Checked out: {}", name));
             }
@@ -627,64 +633,33 @@ impl BranchList {
             return None;
         }
 
-        let bg = if response.hovered() { p.bg_tertiary } else { egui::Color32::TRANSPARENT };
-        if bg != egui::Color32::TRANSPARENT {
-            ui.painter().rect_filled(rect, 0.0, bg);
+        if response.hovered() {
+            ui.painter().rect_filled(rect, 0.0, p.bg_tertiary);
         }
 
         let y = rect.center().y;
-        let font = egui::FontId::proportional(11.0);
-
-        // Truncate message to fit
-        let btn_area_w = 70.0;
-        let max_text_w = available_width - 22.0 - btn_area_w;
         ui.painter().text(
             egui::pos2(rect.min.x + 22.0, y),
             egui::Align2::LEFT_CENTER,
             &stash.message,
-            font.clone(),
+            egui::FontId::proportional(11.0),
             p.text_secondary,
         );
-        // Clip the text visually (painter doesn't clip; we rely on the panel clip rect)
-        let _ = max_text_w;
 
-        // Pop / Drop buttons (only visible on hover)
-        let mut pop_clicked = false;
-        let mut drop_clicked = false;
-        if response.hovered() {
-            let pop_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.max.x - 66.0, rect.min.y + 3.0),
-                egui::vec2(28.0, 18.0),
-            );
-            let drop_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.max.x - 34.0, rect.min.y + 3.0),
-                egui::vec2(30.0, 18.0),
-            );
-            let pop_id = ui.id().with("stash_pop").with(stash.index);
-            let drop_id = ui.id().with("stash_drop").with(stash.index);
-            let pop_resp = ui.interact(pop_rect, pop_id, egui::Sense::click());
-            let drop_resp = ui.interact(drop_rect, drop_id, egui::Sense::click());
-
-            for (r, label) in [(&pop_resp, "Pop"), (&drop_resp, "Drop")] {
-                let btn_rect = if label == "Pop" { pop_rect } else { drop_rect };
-                let bg = if r.hovered() { p.bg_secondary } else { egui::Color32::TRANSPARENT };
-                if bg != egui::Color32::TRANSPARENT {
-                    ui.painter().rect_filled(btn_rect, 3.0, bg);
-                }
-                ui.painter().text(
-                    btn_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(10.0),
-                    p.text_secondary,
-                );
+        let pop_clicked = Cell::new(false);
+        let drop_clicked = Cell::new(false);
+        response.context_menu(|ui| {
+            if ui.button("Pop").clicked() {
+                pop_clicked.set(true);
+                ui.close_menu();
             }
+            if ui.button("Drop").clicked() {
+                drop_clicked.set(true);
+                ui.close_menu();
+            }
+        });
 
-            pop_clicked = pop_resp.clicked();
-            drop_clicked = drop_resp.clicked();
-        }
-
-        Some((pop_clicked, drop_clicked))
+        Some((pop_clicked.get(), drop_clicked.get()))
     }
 
     fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {
