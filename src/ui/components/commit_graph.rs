@@ -235,6 +235,7 @@ impl CommitGraph {
         ui.spacing_mut().item_spacing.y = 0.0;
 
         let mut cherry_pick_id: Option<String> = None;
+        let mut cherry_pick_no_commit_id: Option<String> = None;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -266,6 +267,10 @@ impl CommitGraph {
                     response.context_menu(|ui| {
                         if ui.button("Cherry-pick").clicked() {
                             cherry_pick_id = Some(commit_id.clone());
+                            ui.close_menu();
+                        }
+                        if ui.button("Cherry-pick (edit message)").clicked() {
+                            cherry_pick_no_commit_id = Some(commit_id.clone());
                             ui.close_menu();
                         }
                         if ui.button("Copy hash").clicked() {
@@ -413,6 +418,27 @@ impl CommitGraph {
                     );
                 }
             });
+
+        if let Some(id) = cherry_pick_no_commit_id {
+            if let Some(commit) = commits.iter().find(|c| c.id == id) {
+                let msg = commit.message.trim().to_owned();
+                let short = &id[..7.min(id.len())];
+                match state.repository_state_mut().cherry_pick_no_commit(&id) {
+                    Ok(()) => {
+                        state.ui_state.set_commit_message(&msg);
+                        state.set_info(format!("Staged {} — edit message and commit", short));
+                    }
+                    Err(e) => {
+                        let em = e.to_string();
+                        if em.contains("allow-empty") || em.contains("is now empty") {
+                            state.set_info(format!("Skipped {}: changes already present", short));
+                        } else {
+                            state.set_error(format!("Cherry-pick failed: {}", e));
+                        }
+                    }
+                }
+            }
+        }
 
         cherry_pick_id
     }

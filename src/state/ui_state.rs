@@ -67,6 +67,11 @@ pub struct UIState {
     pub show_passphrase_dialog: bool,
     pub passphrase_prompt: String,
     pub passphrase_input: String,
+
+    /// Worktree create dialog
+    pub show_create_worktree_dialog: bool,
+    pub new_worktree_path: String,
+    pub new_worktree_branch: String,
 }
 
 impl UIState {
@@ -96,6 +101,9 @@ impl UIState {
             show_passphrase_dialog: false,
             passphrase_prompt: String::new(),
             passphrase_input: String::new(),
+            show_create_worktree_dialog: false,
+            new_worktree_path: String::new(),
+            new_worktree_branch: String::new(),
         }
     }
 

@@ -683,6 +683,43 @@ impl GitService {
         Ok(())
     }
 
+    /// Cherry-pick a commit onto the current branch without creating a commit.
+    pub fn cherry_pick_no_commit(repo: &Repository, commit_id: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        log::info!("Cherry-picking --no-commit {}", commit_id);
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", "--no-commit", commit_id])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    /// List git worktrees for this repository.
+    pub fn list_worktrees(repo: &Repository) -> Result<Vec<crate::models::WorktreeEntry>> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        let output = crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "list", "--porcelain"])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(parse_worktrees(&output, workdir.as_ref()))
+    }
+
+    /// Add a git worktree at `path` checking out `branch`.
+    pub fn add_worktree(repo: &Repository, path: &std::path::Path, branch: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "add", &path.to_string_lossy(), branch])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    /// Remove a git worktree at `path`.
+    pub fn remove_worktree(repo: &Repository, path: &std::path::Path) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "remove", &path.to_string_lossy()])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
     /// Get recent commits via RevWalk (topological + time order), all branches.
     pub fn get_commits(repo: &Repository, limit: usize) -> Result<Vec<models::Commit>> {
         let mut walk = repo.revwalk()?;
@@ -728,4 +765,36 @@ impl GitService {
             parents: commit.parents().map(|p| p.id().to_string()).collect(),
         }
     }
+}
+
+fn parse_worktrees(output: &str, main_workdir: &std::path::Path) -> Vec<crate::models::WorktreeEntry> {
+    let mut entries = Vec::new();
+    let mut path: Option<std::path::PathBuf> = None;
+    let mut branch: Option<String> = None;
+
+    let flush = |path: &mut Option<std::path::PathBuf>, branch: &mut Option<String>, entries: &mut Vec<crate::models::WorktreeEntry>, main_workdir: &std::path::Path| {
+        if let Some(p) = path.take() {
+            let is_current = p == main_workdir || p == main_workdir.parent().unwrap_or(main_workdir);
+            entries.push(crate::models::WorktreeEntry { path: p, branch: branch.take(), is_current });
+        }
+    };
+
+    for line in output.lines() {
+        if line.starts_with("worktree ") {
+            flush(&mut path, &mut branch, &mut entries, main_workdir);
+            path = Some(std::path::PathBuf::from(line["worktree ".len()..].trim()));
+        } else if line.starts_with("branch ") {
+            let b = line["branch ".len()..].trim();
+            let b = b.strip_prefix("refs/heads/").unwrap_or(b);
+            branch = Some(b.to_string());
+        }
+    }
+    flush(&mut path, &mut branch, &mut entries, main_workdir);
+
+    // Mark the first entry (main worktree) as current if none were marked
+    if !entries.is_empty() && !entries.iter().any(|e| e.is_current) {
+        entries[0].is_current = true;
+    }
+
+    entries
 }

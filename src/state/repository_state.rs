@@ -46,6 +46,9 @@ pub struct RepositoryState {
 
     /// Recent commits (up to 500)
     pub commits: Vec<models::Commit>,
+
+    /// Worktrees associated with this repository
+    pub worktrees: Vec<models::WorktreeEntry>,
 }
 
 impl RepositoryState {
@@ -81,6 +84,7 @@ impl RepositoryState {
             ahead: 0,
             behind: 0,
             commits: Vec::new(),
+            worktrees: Vec::new(),
         };
 
         // Load initial data
@@ -118,6 +122,9 @@ impl RepositoryState {
 
         // Load recent commits
         self.commits = services::GitService::get_commits(&self.repository, 500).unwrap_or_default();
+
+        // Load worktrees
+        self.worktrees = services::GitService::list_worktrees(&self.repository).unwrap_or_default();
 
         Ok(())
     }
@@ -301,6 +308,24 @@ impl RepositoryState {
 
     pub fn cherry_pick_skip(&mut self) -> anyhow::Result<()> {
         services::GitService::cherry_pick_skip(&self.repository)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn cherry_pick_no_commit(&mut self, commit_id: &str) -> anyhow::Result<()> {
+        services::GitService::cherry_pick_no_commit(&self.repository, commit_id)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn add_worktree(&mut self, path: &std::path::Path, branch: &str) -> anyhow::Result<()> {
+        services::GitService::add_worktree(&self.repository, path, branch)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn remove_worktree(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        services::GitService::remove_worktree(&self.repository, path)?;
         self.refresh()?;
         Ok(())
     }

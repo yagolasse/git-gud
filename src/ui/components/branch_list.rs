@@ -10,6 +10,7 @@ pub struct BranchList {
     remotes_open: bool,
     tags_open: bool,
     stashes_open: bool,
+    worktrees_open: bool,
     submodules_open: bool,
     remote_sections: HashMap<String, bool>,
 }
@@ -22,6 +23,7 @@ impl BranchList {
             remotes_open: true,
             tags_open: false,
             stashes_open: false,
+            worktrees_open: false,
             submodules_open: false,
             remote_sections: HashMap::new(),
         }
@@ -75,6 +77,7 @@ impl BranchList {
 
         let stashes: Vec<crate::models::StashEntry> = state.repository_state().stashes.clone();
         let tags: Vec<crate::models::Tag> = state.repository_state().tags.clone();
+        let worktrees: Vec<crate::models::WorktreeEntry> = state.repository_state().worktrees.clone();
         let (ahead, behind) = state.repository_state.as_ref()
             .map(|rs| (rs.ahead, rs.behind))
             .unwrap_or((0, 0));
@@ -87,6 +90,8 @@ impl BranchList {
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
+        let mut worktree_to_remove: Option<std::path::PathBuf> = None;
+        let mut show_add_worktree = false;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -172,6 +177,20 @@ impl BranchList {
                     }
                 }
 
+                let wt_add = Self::show_section_header(ui, p, "WORKTREES", &mut self.worktrees_open, true);
+                if wt_add { show_add_worktree = true; }
+                if self.worktrees_open {
+                    if worktrees.is_empty() {
+                        Self::show_empty_hint(ui, p, "No worktrees", 22.0);
+                    } else {
+                        for wt in &worktrees {
+                            if let Some(path) = Self::show_worktree_row(ui, p, wt) {
+                                worktree_to_remove = Some(path);
+                            }
+                        }
+                    }
+                }
+
                 Self::show_section_header(ui, p, "SUBMODULES", &mut self.submodules_open, false);
             });
 
@@ -221,6 +240,60 @@ impl BranchList {
             match state.repository_state_mut().stash_drop(index) {
                 Ok(()) => state.set_info("Stash dropped".to_string()),
                 Err(e) => state.set_error(format!("Failed to drop stash: {}", e)),
+            }
+        }
+        if let Some(path) = worktree_to_remove {
+            match state.repository_state_mut().remove_worktree(&path) {
+                Ok(()) => state.set_info(format!("Worktree '{}' removed", path.display())),
+                Err(e) => state.set_error(format!("Failed to remove worktree: {}", e)),
+            }
+        }
+        if show_add_worktree {
+            state.ui_state.show_create_worktree_dialog = true;
+        }
+
+        // Worktree create dialog
+        if state.ui_state.show_create_worktree_dialog {
+            let ctx = ui.ctx().clone();
+            let mut do_create = false;
+            let mut do_cancel = false;
+            egui::Window::new("Add Worktree")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label("Path:");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut state.ui_state.new_worktree_path).desired_width(240.0));
+                        if ui.button("Browse…").clicked() {
+                            if let Some(p) = crate::ui::FileDialog::open_directory() {
+                                state.ui_state.new_worktree_path = p.to_string_lossy().to_string();
+                            }
+                        }
+                    });
+                    ui.label("Branch:");
+                    ui.add(egui::TextEdit::singleline(&mut state.ui_state.new_worktree_branch).desired_width(240.0));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Add").clicked() { do_create = true; }
+                        if ui.button("Cancel").clicked() { do_cancel = true; }
+                    });
+                });
+            if do_create && !state.ui_state.new_worktree_path.is_empty() && !state.ui_state.new_worktree_branch.is_empty() {
+                let path = std::path::PathBuf::from(state.ui_state.new_worktree_path.clone());
+                let branch = state.ui_state.new_worktree_branch.clone();
+                state.ui_state.show_create_worktree_dialog = false;
+                state.ui_state.new_worktree_path.clear();
+                state.ui_state.new_worktree_branch.clear();
+                match state.repository_state_mut().add_worktree(&path, &branch) {
+                    Ok(()) => state.set_info(format!("Worktree added at '{}'", path.display())),
+                    Err(e) => state.set_error(format!("Failed to add worktree: {}", e)),
+                }
+            }
+            if do_cancel {
+                state.ui_state.show_create_worktree_dialog = false;
+                state.ui_state.new_worktree_path.clear();
+                state.ui_state.new_worktree_branch.clear();
             }
         }
 
@@ -667,6 +740,59 @@ impl BranchList {
             ui.add_space(indent);
             ui.label(egui::RichText::new(text).color(p.text_tertiary).small());
         });
+    }
+
+    /// Renders a worktree row. Returns `Some(path)` if the user chose to remove this worktree.
+    fn show_worktree_row(
+        ui: &mut egui::Ui,
+        p: &Palette,
+        wt: &crate::models::WorktreeEntry,
+    ) -> Option<std::path::PathBuf> {
+        let available_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            if response.hovered() {
+                ui.painter().rect_filled(rect, 0.0, p.bg_tertiary);
+            }
+
+            let y = rect.center().y;
+            let name = wt.path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| wt.path.to_string_lossy().to_string());
+
+            let label = if let Some(branch) = &wt.branch {
+                format!("{} ({})", name, branch)
+            } else {
+                name
+            };
+
+            let color = if wt.is_current { p.accent_text } else { p.text_secondary };
+            ui.painter().text(
+                egui::pos2(rect.min.x + 22.0, y),
+                egui::Align2::LEFT_CENTER,
+                &label,
+                egui::FontId::proportional(11.0),
+                color,
+            );
+        }
+
+        let remove_clicked = Cell::new(false);
+        response.context_menu(|ui| {
+            if ui.button("Copy path").clicked() {
+                ui.output_mut(|o| o.copied_text = wt.path.to_string_lossy().to_string());
+                ui.close_menu();
+            }
+            if !wt.is_current {
+                if ui.button("Remove").clicked() {
+                    remove_clicked.set(true);
+                    ui.close_menu();
+                }
+            }
+        });
+
+        if remove_clicked.get() { Some(wt.path.clone()) } else { None }
     }
 }
 

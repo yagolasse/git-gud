@@ -74,6 +74,14 @@ pub struct Tag {
     pub commit_id: String,
 }
 
+/// A git worktree entry
+#[derive(Debug, Clone)]
+pub struct WorktreeEntry {
+    pub path: std::path::PathBuf,
+    pub branch: Option<String>,
+    pub is_current: bool,
+}
+
 // Re-export diff module
 pub mod diff;
 pub use diff::*;
