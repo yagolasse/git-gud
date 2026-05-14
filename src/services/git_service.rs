@@ -605,6 +605,26 @@ impl GitService {
         Ok(())
     }
 
+    /// Cherry-pick a commit onto the current branch.
+    pub fn cherry_pick(repo: &Repository, commit_id: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        log::info!("Cherry-picking {}", commit_id);
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", commit_id])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    /// Merge a branch into the current branch.
+    pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        log::info!("Merging {}", branch_name);
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["merge", branch_name])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
     /// Push a tag to a remote using the system git binary.
     pub fn push_tag(repo: &Repository, remote_name: &str, tag_name: &str) -> Result<()> {
         let workdir = repo.workdir()

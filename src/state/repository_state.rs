@@ -280,6 +280,20 @@ impl RepositoryState {
         services::GitService::push(&self.repository, remote_name, branch_name)
     }
 
+    /// Cherry-pick a commit onto the current branch
+    pub fn cherry_pick(&mut self, commit_id: &str) -> anyhow::Result<()> {
+        services::GitService::cherry_pick(&self.repository, commit_id)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    /// Merge a branch into the current branch
+    pub fn merge_branch(&mut self, branch_name: &str) -> anyhow::Result<()> {
+        services::GitService::merge_branch(&self.repository, branch_name)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     /// Get the current branch name
     pub fn current_branch(&self) -> Option<&str> {
         self.branches

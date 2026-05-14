@@ -155,7 +155,7 @@ impl CommitGraph {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
+    pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) -> Option<String> {
         let commits: Vec<Commit> = {
             match state.repository_state.as_ref() {
                 Some(rs) => rs.commits.clone(),
@@ -168,7 +168,7 @@ impl CommitGraph {
                                 .size(13.0),
                         );
                     });
-                    return;
+                    return None;
                 }
             }
         };
@@ -182,7 +182,7 @@ impl CommitGraph {
                         .size(13.0),
                 );
             });
-            return;
+            return None;
         }
 
         // Rebuild graph layout when commit list changes
@@ -208,6 +208,8 @@ impl CommitGraph {
 
         ui.spacing_mut().item_spacing.y = 0.0;
 
+        let mut cherry_pick_id: Option<String> = None;
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, row_count, |ui, visible| {
@@ -232,6 +234,19 @@ impl CommitGraph {
                     if response.clicked() {
                         self.selected = Some(row_idx);
                     }
+
+                    // Context menu
+                    let commit_id = commit.id.clone();
+                    response.context_menu(|ui| {
+                        if ui.button("Cherry-pick").clicked() {
+                            cherry_pick_id = Some(commit_id.clone());
+                            ui.close_menu();
+                        }
+                        if ui.button("Copy hash").clicked() {
+                            ui.output_mut(|o| o.copied_text = commit_id.clone());
+                            ui.close_menu();
+                        }
+                    });
 
                     // Tooltip: full commit message on hover
                     response.on_hover_text(commit.message.trim());
@@ -362,6 +377,8 @@ impl CommitGraph {
                     );
                 }
             });
+
+        cherry_pick_id
     }
 }
 

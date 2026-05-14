@@ -487,7 +487,12 @@ impl MainWindow {
 
     fn show_history_tab(&mut self, ui: &mut egui::Ui) {
         let mut state = self.state.lock();
-        self.commit_graph.show(ui, &mut state);
+        if let Some(commit_id) = self.commit_graph.show(ui, &mut state) {
+            match state.repository_state_mut().cherry_pick(&commit_id) {
+                Ok(()) => state.set_info(format!("Cherry-picked {}", &commit_id[..7.min(commit_id.len())])),
+                Err(e) => state.set_error(format!("Cherry-pick failed: {}", e)),
+            }
+        }
     }
 }
 

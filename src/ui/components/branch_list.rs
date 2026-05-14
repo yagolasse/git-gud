@@ -83,6 +83,7 @@ impl BranchList {
         let mut branch_to_checkout: Option<String> = None;
         let mut branch_to_delete: Option<String> = None;
         let mut branch_to_rename: Option<String> = None;
+        let mut branch_to_merge: Option<String> = None;
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
@@ -94,11 +95,12 @@ impl BranchList {
                 if self.branches_open {
                     for branch in &local_branches {
                         let ab = if branch.is_current { (ahead, behind) } else { (0, 0) };
-                        let (sel, chk, del, ren) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0, &branch.name, ab);
+                        let (sel, chk, del, ren, mrg) = Self::show_branch_row(ui, p, &selected_branch, branch, 18.0, &branch.name, ab);
                         if sel { branch_to_select = Some(branch.name.clone()); }
                         if chk { branch_to_checkout = Some(branch.name.clone()); }
                         if del { branch_to_delete = Some(branch.name.clone()); }
                         if ren { branch_to_rename = Some(branch.name.clone()); }
+                        if mrg { branch_to_merge = Some(branch.name.clone()); }
                     }
                     if local_branches.is_empty() {
                         Self::show_empty_hint(ui, p, "No local branches", 22.0);
@@ -128,7 +130,7 @@ impl BranchList {
                                 for branch in branches {
                                     let label = branch.name.split_once('/').map(|(_, r)| r).unwrap_or(&branch.name);
                                     if label == "HEAD" { continue; }
-                                    let (sel, chk, _del, _ren) =
+                                    let (sel, chk, _del, _ren, _mrg) =
                                         Self::show_branch_row(ui, p, &selected_branch, branch, indent + 12.0, label, (0, 0));
                                     if sel {
                                         branch_to_select = Some(branch.name.clone());
@@ -196,6 +198,12 @@ impl BranchList {
             state.ui_state.rename_branch_old = name.clone();
             state.ui_state.rename_branch_new = name;
             state.ui_state.show_rename_branch_dialog = true;
+        }
+        if let Some(name) = branch_to_merge {
+            match state.repository_state_mut().merge_branch(&name) {
+                Ok(()) => state.set_info(format!("Merged '{}' into current branch", name)),
+                Err(e) => state.set_error(format!("Merge failed: {}", e)),
+            }
         }
         if let Some(index) = stash_to_pop {
             match state.repository_state_mut().stash_pop(index) {
@@ -497,7 +505,7 @@ impl BranchList {
         indent: f32,
         label: &str,
         ahead_behind: (usize, usize),
-    ) -> (bool, bool, bool, bool) {
+    ) -> (bool, bool, bool, bool, bool) {
         let is_selected = selected_branch.as_ref() == Some(&branch.name);
         let available_width = ui.available_width();
         let (rect, response) =
@@ -570,6 +578,7 @@ impl BranchList {
         let checkout_from_menu = Cell::new(false);
         let delete_from_menu = Cell::new(false);
         let rename_from_menu = Cell::new(false);
+        let merge_from_menu = Cell::new(false);
         response.context_menu(|ui| {
             if !branch.is_current && ui.button("Checkout").clicked() {
                 checkout_from_menu.set(true);
@@ -584,6 +593,12 @@ impl BranchList {
                     rename_from_menu.set(true);
                     ui.close_menu();
                 }
+                if !branch.is_current {
+                    if ui.button("Merge into current").clicked() {
+                        merge_from_menu.set(true);
+                        ui.close_menu();
+                    }
+                }
             }
             ui.separator();
             if branch.is_current {
@@ -595,7 +610,7 @@ impl BranchList {
         });
 
         let checkout = (response.double_clicked() || checkout_from_menu.get()) && !branch.is_current;
-        (response.clicked(), checkout, delete_from_menu.get(), rename_from_menu.get())
+        (response.clicked(), checkout, delete_from_menu.get(), rename_from_menu.get(), merge_from_menu.get())
     }
 
     /// Returns `Some((pop_clicked, drop_clicked))` for the given stash row
