@@ -1,22 +1,33 @@
 use crate::state::AppState;
 use crate::ui::colors::Palette;
 use eframe::egui;
+use std::path::PathBuf;
 
 const ITEM_H: f32 = 26.0;
 const TOOLBAR_H: f32 = 38.0;
+
+pub enum ToolbarAction {
+    OpenRepo(PathBuf),
+    ShowOpenDialog,
+}
 
 pub struct Toolbar;
 
 impl Toolbar {
     pub fn new() -> Self { Self }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        state: &mut AppState,
+        recent_repos: &[PathBuf],
+    ) -> Option<ToolbarAction> {
         let p = crate::ui::colors::get(state.dark_mode);
 
         let available_width = ui.available_width();
         let (bar_rect, _) =
             ui.allocate_exact_size(egui::vec2(available_width, TOOLBAR_H), egui::Sense::hover());
-        if !ui.is_rect_visible(bar_rect) { return; }
+        if !ui.is_rect_visible(bar_rect) { return None; }
 
         ui.painter().rect_filled(bar_rect, 0.0, p.bg_primary);
         ui.painter().hline(
@@ -27,10 +38,53 @@ impl Toolbar {
 
         let cy = bar_rect.center().y;
         let mut x = bar_rect.min.x + 10.0;
+        let mut action: Option<ToolbarAction> = None;
 
         let repo_name = state.repository_state.as_ref().map(|r| r.model.name.clone()).unwrap_or_default();
         if !repo_name.is_empty() {
-            x = self.pill_button(ui, p, x, cy, &repo_name, None, "pill_repo");
+            let (pill_rect, pill_resp) = self.pill_button(ui, p, x, cy, &repo_name, None, "pill_repo");
+            x = pill_rect.max.x + 4.0;
+
+            let popup_id = ui.id().with("repo_dropdown");
+            if pill_resp.clicked() {
+                ui.memory_mut(|m| {
+                    if m.is_popup_open(popup_id) { m.close_popup(); } else { m.open_popup(popup_id); }
+                });
+            }
+
+            if ui.memory(|m| m.is_popup_open(popup_id)) {
+                let area_resp = egui::Area::new(popup_id)
+                    .fixed_pos(pill_rect.left_bottom())
+                    .order(egui::Order::Foreground)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_width(pill_rect.width().max(160.0));
+                            for path in recent_repos {
+                                let name = path.file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                                if ui.button(&name).clicked() {
+                                    action = Some(ToolbarAction::OpenRepo(path.clone()));
+                                    ui.memory_mut(|m| m.close_popup());
+                                }
+                            }
+                            if !recent_repos.is_empty() { ui.separator(); }
+                            if ui.button("Open other...").clicked() {
+                                action = Some(ToolbarAction::ShowOpenDialog);
+                                ui.memory_mut(|m| m.close_popup());
+                            }
+                        });
+                    });
+
+                let interact_pos = ui.ctx().input(|i| i.pointer.interact_pos().unwrap_or_default());
+                if ui.ctx().input(|i| i.pointer.any_click())
+                    && !area_resp.response.rect.contains(interact_pos)
+                    && !pill_rect.contains(interact_pos)
+                {
+                    ui.memory_mut(|m| m.close_popup());
+                }
+            }
+
             x = self.vsep(ui, p, x, cy);
         }
 
@@ -133,6 +187,8 @@ impl Toolbar {
         if nt_clk && state.has_repository() {
             state.ui_state.show_create_tag_dialog = true;
         }
+
+        action
     }
 
     fn pill_button(
@@ -144,7 +200,7 @@ impl Toolbar {
         label: &str,
         dot_color: Option<egui::Color32>,
         id_key: &str,
-    ) -> f32 {
+    ) -> (egui::Rect, egui::Response) {
         let font = egui::FontId::proportional(12.0);
         let label_w = ui
             .fonts(|f| f.layout_no_wrap(label.to_string(), font.clone(), p.text_primary).size().x)
@@ -173,7 +229,7 @@ impl Toolbar {
         ui.painter().text(egui::pos2(px, py), egui::Align2::LEFT_CENTER, label, font, p.text_primary);
         paint_pill_chevron(ui.painter(), egui::pos2(pill_rect.max.x - 8.0, py), p.text_tertiary);
 
-        pill_rect.max.x + 4.0
+        (pill_rect, resp)
     }
 
     fn ghost_btn(

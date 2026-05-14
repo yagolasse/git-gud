@@ -12,4 +12,5 @@ pub use components::{
     BranchList, CommandLog, CommitGraph, CommitPanel, EnhancedDiffViewer, ErrorDialog, FileDialog,
     FileList, PassphraseDialog, RecentRepos, Toolbar,
 };
+pub use components::ToolbarAction;
 pub use main_window::MainWindow;

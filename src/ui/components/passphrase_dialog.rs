@@ -36,9 +36,11 @@ impl PassphraseDialog {
                 .show(ctx, |ui| {
                     ui.label(&prompt);
                     ui.add_space(4.0);
+                    let is_username = prompt.to_lowercase().contains("username");
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut pass)
-                            .password(true)
+                            .password(!is_username)
+                            .hint_text(if is_username { "Username" } else { "Password" })
                             .desired_width(260.0),
                     );
                     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

@@ -26,5 +26,5 @@ pub use file_dialog::FileDialog;
 pub use file_list::FileList;
 pub use passphrase_dialog::PassphraseDialog;
 pub use recent_repos::RecentRepos;
-pub use toolbar::Toolbar;
+pub use toolbar::{Toolbar, ToolbarAction};
 pub use virtual_scroll::VirtualScroll;

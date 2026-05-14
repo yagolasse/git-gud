@@ -180,26 +180,59 @@ impl MainWindow {
                 });
 
                 ui.menu_button("Repository", |ui| {
-                    if state.has_repository() {
-                        if ui.button("Refresh").clicked() {
-                            if let Err(e) = state.refresh_repository() {
-                                state.set_error(format!("Failed to refresh repository: {}", e));
-                            } else {
-                                state.set_info("Repository refreshed".to_string());
-                            }
-                            ui.close_menu();
-                        }
-                    } else {
-                        ui.add_enabled(false, egui::Button::new("Refresh"));
+                    let has_repo = state.has_repository();
+                    if ui.add_enabled(has_repo, egui::Button::new("Fetch").shortcut_text("Ctrl+Shift+F")).clicked() {
+                        state.ui_state.pending_action = Some(crate::state::PendingAction::Fetch);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_repo, egui::Button::new("Pull").shortcut_text("Ctrl+Shift+L")).clicked() {
+                        state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_repo, egui::Button::new("Push").shortcut_text("Ctrl+Shift+P")).clicked() {
+                        state.ui_state.pending_action = Some(crate::state::PendingAction::Push);
+                        ui.close_menu();
                     }
                     ui.separator();
-                    if state.has_repository() {
-                        if ui.button("Show in File Explorer").clicked() {
-                            state.set_info("Show in file explorer not yet implemented".to_string());
-                            ui.close_menu();
+                    if ui.add_enabled(has_repo, egui::Button::new("Refresh").shortcut_text("Ctrl+R")).clicked() {
+                        if let Err(e) = state.refresh_repository() {
+                            state.set_error(format!("Failed to refresh: {}", e));
+                        } else {
+                            state.set_info("Repository refreshed".to_string());
                         }
-                    } else {
-                        ui.add_enabled(false, egui::Button::new("Show in File Explorer"));
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Open Repository...").clicked() {
+                        self.show_open_dialog = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("New Repository...").clicked() {
+                        if let Some(path) = crate::ui::FileDialog::open_directory() {
+                            match crate::services::GitService::init_repository(&path) {
+                                Ok(_) => match state.load_repository(path.clone()) {
+                                    Ok(_) => {
+                                        self.show_open_dialog = false;
+                                        state.clear_error();
+                                        self.recent_repos.add(&path);
+                                        if let Err(e) = self.recent_repos.save_default() {
+                                            log::error!("Failed to save recent repos: {}", e);
+                                        }
+                                        if let Err(e) = self.file_watcher.start_watching(&path) {
+                                            log::error!("Failed to start file watcher: {}", e);
+                                        }
+                                    }
+                                    Err(e) => state.set_error(format!("Failed to load new repo: {}", e)),
+                                },
+                                Err(e) => state.set_error(format!("Init failed: {}", e)),
+                            }
+                        }
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.add_enabled(has_repo, egui::Button::new("Show in File Explorer")).clicked() {
+                        state.set_info("Show in file explorer not yet implemented".to_string());
+                        ui.close_menu();
                     }
                 });
 
@@ -229,7 +262,9 @@ impl MainWindow {
         });
 
         if self.state.lock().has_repository() {
-            egui::TopBottomPanel::top("toolbar")
+            let recent: Vec<std::path::PathBuf> =
+                self.recent_repos.get().iter().map(|p| (*p).clone()).collect();
+            let toolbar_resp = egui::TopBottomPanel::top("toolbar")
                 .frame(egui::Frame {
                     fill: p.bg_primary,
                     inner_margin: egui::Margin::ZERO,
@@ -238,8 +273,27 @@ impl MainWindow {
                 })
                 .show(ctx, |ui| {
                     let mut state = self.state.lock();
-                    self.toolbar.show(ui, &mut state);
+                    self.toolbar.show(ui, &mut state, &recent)
                 });
+            if let Some(action) = toolbar_resp.inner {
+                match action {
+                    crate::ui::ToolbarAction::OpenRepo(path) => {
+                        let mut state = self.state.lock();
+                        if state.load_repository(path.clone()).is_ok() {
+                            self.show_open_dialog = false;
+                            state.clear_error();
+                            self.recent_repos.add(&path);
+                            self.save_recent_repos();
+                            if let Err(e) = self.file_watcher.start_watching(&path) {
+                                log::error!("Failed to start file watcher: {}", e);
+                            }
+                        }
+                    }
+                    crate::ui::ToolbarAction::ShowOpenDialog => {
+                        self.show_open_dialog = true;
+                    }
+                }
+            }
         }
 
         let has_repo = self.state.lock().has_repository();
