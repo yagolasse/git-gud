@@ -11,6 +11,7 @@ pub enum PendingAction {
     CreateCommit(String),
     Pull,
     Push,
+    Fetch,
     PushTag(String),
 }
 

@@ -572,17 +572,36 @@ impl GitService {
     }
 
     /// Push a branch to a remote using the system git binary.
+    /// Automatically adds --set-upstream when the branch has no tracking ref.
     pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<()> {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
 
-        log::info!("Pushing {} to {}", branch_name, remote_name);
-        crate::services::git_command::run_blocking(
-            workdir.as_ref(),
-            &["push", remote_name, branch_name],
-        )
-        .map_err(|e| anyhow!("{}", e))?;
+        let has_upstream = repo
+            .branch_upstream_name(&format!("refs/heads/{}", branch_name))
+            .is_ok();
 
+        log::info!("Pushing {} to {} (set-upstream: {})", branch_name, remote_name, !has_upstream);
+        let mut args = vec!["push"];
+        if !has_upstream {
+            args.push("--set-upstream");
+        }
+        args.push(remote_name);
+        args.push(branch_name);
+
+        crate::services::git_command::run_blocking(workdir.as_ref(), &args)
+            .map_err(|e| anyhow!("{}", e))?;
+
+        Ok(())
+    }
+
+    /// Fetch from a remote using the system git binary.
+    pub fn fetch(repo: &Repository, remote_name: &str) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        log::info!("Fetching from {}", remote_name);
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["fetch", remote_name])
+            .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
 

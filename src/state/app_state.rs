@@ -65,8 +65,8 @@ pub enum NetworkStatus {
         /// Parsed percentage progress; negative = indeterminate
         progress: f32,
         lines_rx: std::sync::mpsc::Receiver<crate::services::git_command::StreamLine>,
-        /// true = pull (refresh repo after success), false = push
-        is_pull: bool,
+        /// Whether to refresh the repo model on completion (true for pull/fetch, false for push)
+        refresh_on_complete: bool,
     },
 }
 
@@ -333,7 +333,7 @@ impl AppState {
                                     lines: Vec::new(),
                                     progress: -1.0,
                                     lines_rx: rx,
-                                    is_pull: true,
+                                    refresh_on_complete: true,
                                 };
                             }
                             Err(e) => self.set_error(format!("Pull failed: {}", e)),
@@ -344,10 +344,18 @@ impl AppState {
                     let net_info = self.repository_state.as_ref().and_then(|rs| {
                         let workdir = rs.repository.workdir()?.to_path_buf();
                         let branch = rs.current_branch().map(|b| b.to_string())?;
-                        Some((workdir, branch))
+                        let has_upstream = rs.repository
+                            .branch_upstream_name(&format!("refs/heads/{}", branch))
+                            .is_ok();
+                        Some((workdir, branch, has_upstream))
                     });
-                    if let Some((workdir, branch)) = net_info {
-                        let args = vec!["push".to_string(), "origin".to_string(), branch];
+                    if let Some((workdir, branch, has_upstream)) = net_info {
+                        let mut args = vec!["push".to_string()];
+                        if !has_upstream {
+                            args.push("--set-upstream".to_string());
+                        }
+                        args.push("origin".to_string());
+                        args.push(branch);
                         match crate::services::git_command::run_streaming_std(&workdir, args) {
                             Ok(rx) => {
                                 self.network_status = NetworkStatus::Running {
@@ -355,10 +363,29 @@ impl AppState {
                                     lines: Vec::new(),
                                     progress: -1.0,
                                     lines_rx: rx,
-                                    is_pull: false,
+                                    refresh_on_complete: false,
                                 };
                             }
                             Err(e) => self.set_error(format!("Push failed: {}", e)),
+                        }
+                    }
+                }
+                super::ui_state::PendingAction::Fetch => {
+                    let workdir = self.repository_state.as_ref()
+                        .and_then(|rs| rs.repository.workdir().map(|p| p.to_path_buf()));
+                    if let Some(workdir) = workdir {
+                        let args = vec!["fetch".to_string(), "origin".to_string()];
+                        match crate::services::git_command::run_streaming_std(&workdir, args) {
+                            Ok(rx) => {
+                                self.network_status = NetworkStatus::Running {
+                                    operation: "Fetch".into(),
+                                    lines: Vec::new(),
+                                    progress: -1.0,
+                                    lines_rx: rx,
+                                    refresh_on_complete: true,
+                                };
+                            }
+                            Err(e) => self.set_error(format!("Fetch failed: {}", e)),
                         }
                     }
                 }
@@ -376,10 +403,10 @@ impl AppState {
     /// Drain the network-operation channel and handle completion.
     /// Call once per frame from the render loop.
     pub fn poll_network(&mut self) {
-        let outcome = if let NetworkStatus::Running { lines, progress, lines_rx, is_pull, .. } =
+        let outcome = if let NetworkStatus::Running { lines, progress, lines_rx, refresh_on_complete, operation, .. } =
             &mut self.network_status
         {
-            let mut result: Option<(Result<(), String>, bool)> = None;
+            let mut result: Option<(Result<(), String>, bool, String)> = None;
             loop {
                 match lines_rx.try_recv() {
                     Ok(crate::services::git_command::StreamLine::Output(line)) => {
@@ -392,7 +419,7 @@ impl AppState {
                         }
                     }
                     Ok(crate::services::git_command::StreamLine::Done(r)) => {
-                        result = Some((r, *is_pull));
+                        result = Some((r, *refresh_on_complete, operation.clone()));
                         break;
                     }
                     Err(_) => break,
@@ -403,12 +430,11 @@ impl AppState {
             None
         };
 
-        if let Some((result, is_pull)) = outcome {
+        if let Some((result, refresh_on_complete, operation)) = outcome {
             match result {
                 Ok(()) => {
-                    let op = if is_pull { "Pull" } else { "Push" };
-                    self.set_info(format!("{} successful", op));
-                    if is_pull {
+                    self.set_info(format!("{} successful", operation));
+                    if refresh_on_complete {
                         if let Some(rs) = self.repository_state.as_mut() {
                             let _ = rs.refresh();
                         }

@@ -35,23 +35,22 @@ impl Toolbar {
         }
 
         // Snapshot running state so we can disable the relevant button and inline the spinner.
-        let (pull_running, push_running, net_progress, net_last_line) =
+        let (fetch_running, pull_running, push_running, net_progress, net_last_line) =
             match &state.network_status {
                 crate::state::NetworkStatus::Running { operation, progress, lines, .. } => {
-                    let is_pull = operation == "Pull";
-                    (is_pull, !is_pull, *progress, lines.last().cloned())
+                    let op = operation.as_str();
+                    (op == "Fetch", op == "Pull", op == "Push", *progress, lines.last().cloned())
                 }
-                _ => (false, false, -1.0, None),
+                _ => (false, false, false, -1.0, None),
             };
 
-        let (fetch_r, fetch_clk) = self.ghost_btn(ui, p, x, cy, "Fetch", false, false, "btn_fetch");
+        let (fetch_r, fetch_clk) = self.ghost_btn(ui, p, x, cy, "Fetch", false, fetch_running, "btn_fetch");
         x = fetch_r.max.x + 4.0;
         if fetch_clk && state.has_repository() {
-            if let Err(e) = state.refresh_repository() {
-                state.set_error(format!("Refresh failed: {}", e));
-            } else {
-                state.set_info("Repository refreshed".to_string());
-            }
+            state.ui_state.pending_action = Some(crate::state::PendingAction::Fetch);
+        }
+        if fetch_running {
+            x = inline_spinner(ui, p, x, cy, net_progress, net_last_line.as_deref());
         }
 
         let (pull_r, pull_clk) = self.ghost_btn(ui, p, x, cy, "Pull", false, pull_running, "btn_pull");
@@ -72,7 +71,7 @@ impl Toolbar {
             x = inline_spinner(ui, p, x, cy, net_progress, net_last_line.as_deref());
         }
 
-        if pull_running || push_running {
+        if fetch_running || pull_running || push_running {
             ui.ctx().request_repaint();
         }
 
