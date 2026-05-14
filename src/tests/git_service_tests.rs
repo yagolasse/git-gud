@@ -78,6 +78,7 @@ fn test_unstage_modified_file() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create a file and add it to the repository
     let test_file_path = repo_path.join("test.txt");
@@ -140,6 +141,7 @@ fn test_unstage_partially_staged_file() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create a file and add it to the repository
     let test_file_path = repo_path.join("test.txt");
@@ -245,6 +247,7 @@ fn test_unstage_all_mixed_files() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create and commit initial file
     let file1_path = repo_path.join("file1.txt");
@@ -356,6 +359,7 @@ fn test_branch_operations() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create initial commit
     let test_file_path = repo_path.join("initial.txt");
@@ -379,6 +383,7 @@ fn test_commit_creation() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create and stage a file
     let test_file_path = repo_path.join("commit_test.txt");
@@ -612,8 +617,10 @@ fn test_push_and_pull() -> Result<()> {
     let local_dir = TempDir::new()?;
     let local2_dir = TempDir::new()?;
 
-    // Create bare remote — use three slashes so Windows paths like C:/ are valid
-    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    // Build a valid file:// URL: Unix paths start with '/' so need only two slashes after 'file:';
+    // Windows paths like C:/ need three slashes after 'file:'.
+    let path_str = bare_dir.path().to_string_lossy().replace('\\', "/");
+    let bare_url = if path_str.starts_with('/') { format!("file://{}", path_str) } else { format!("file:///{}", path_str) };
     git2::Repository::init_bare(bare_dir.path())?;
 
     // Set up local repo A, add remote, push initial commit
@@ -647,6 +654,7 @@ fn test_file_diff() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    setup_identity(&repo)?;
 
     // Create initial file and commit
     let test_file_path = repo_path.join("diff_test.txt");
@@ -671,7 +679,8 @@ fn test_get_branches_includes_remotes() -> Result<()> {
     let local_dir = TempDir::new()?;
     let bare_dir = TempDir::new()?;
 
-    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    let path_str = bare_dir.path().to_string_lossy().replace('\\', "/");
+    let bare_url = if path_str.starts_with('/') { format!("file://{}", path_str) } else { format!("file:///{}", path_str) };
     git2::Repository::init_bare(bare_dir.path())?;
 
     let repo = GitService::init_repository(local_dir.path())?;
@@ -751,7 +760,8 @@ fn test_push_tag() -> Result<()> {
     let local_dir = TempDir::new()?;
     let bare_dir = TempDir::new()?;
 
-    let bare_url = format!("file:///{}", bare_dir.path().to_string_lossy().replace('\\', "/"));
+    let path_str = bare_dir.path().to_string_lossy().replace('\\', "/");
+    let bare_url = if path_str.starts_with('/') { format!("file://{}", path_str) } else { format!("file:///{}", path_str) };
     git2::Repository::init_bare(bare_dir.path())?;
 
     let repo = GitService::init_repository(local_dir.path())?;

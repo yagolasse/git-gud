@@ -18,6 +18,10 @@ fn test_git_service_recent_repos_integration() -> Result<()> {
 
     // Initialize repository
     let repo = GitService::init_repository(repo_path)?;
+    let mut cfg = repo.config()?;
+    cfg.set_str("user.name", "Test User")?;
+    cfg.set_str("user.email", "test@example.com")?;
+    drop(cfg);
 
     // Create a test file
     let test_file_path = repo_path.join("test.txt");

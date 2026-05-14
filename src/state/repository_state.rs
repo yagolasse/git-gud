@@ -375,6 +375,13 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    fn setup_identity(repo: &git2::Repository) -> anyhow::Result<()> {
+        let mut cfg = repo.config()?;
+        cfg.set_str("user.name", "Test User")?;
+        cfg.set_str("user.email", "test@example.com")?;
+        Ok(())
+    }
+
     #[test]
     fn test_repository_state_new() -> anyhow::Result<()> {
         let temp_dir = TempDir::new()?;
@@ -408,6 +415,7 @@ mod tests {
 
         // Initialize repository and create initial commit
         let repo = GitService::init_repository(repo_path)?;
+        setup_identity(&repo)?;
         let test_file = repo_path.join("test.txt");
         fs::write(&test_file, "test content")?;
 
@@ -479,6 +487,7 @@ mod tests {
 
         // Initialize repository
         let repo = GitService::init_repository(repo_path)?;
+        setup_identity(&repo)?;
         let test_file = repo_path.join("test.txt");
         fs::write(&test_file, "test content")?;
 
@@ -505,6 +514,7 @@ mod tests {
 
         // Initialize repository with initial commit
         let repo = GitService::init_repository(repo_path)?;
+        setup_identity(&repo)?;
         let test_file = repo_path.join("test.txt");
         fs::write(&test_file, "test content")?;
 
@@ -529,6 +539,7 @@ mod tests {
 
         // Initialize repository
         let repo = GitService::init_repository(repo_path)?;
+        setup_identity(&repo)?;
         let test_file = repo_path.join("test.txt");
         fs::write(&test_file, "test content")?;
 
