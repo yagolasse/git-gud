@@ -287,6 +287,12 @@ impl RepositoryState {
         Ok(())
     }
 
+    pub fn cherry_pick_skip(&mut self) -> anyhow::Result<()> {
+        services::GitService::cherry_pick_skip(&self.repository)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     /// Merge a branch into the current branch
     pub fn merge_branch(&mut self, branch_name: &str) -> anyhow::Result<()> {
         services::GitService::merge_branch(&self.repository, branch_name)?;

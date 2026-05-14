@@ -625,6 +625,14 @@ impl GitService {
         Ok(())
     }
 
+    pub fn cherry_pick_skip(repo: &Repository) -> Result<()> {
+        let workdir = repo.workdir()
+            .ok_or_else(|| anyhow!("Not a working repository"))?;
+        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", "--skip"])
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
     /// Merge a branch into the current branch.
     pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
         let workdir = repo.workdir()
@@ -651,14 +659,29 @@ impl GitService {
         Ok(())
     }
 
-    /// Get recent commits via RevWalk (topological + time order)
+    /// Get recent commits via RevWalk (topological + time order), all branches.
     pub fn get_commits(repo: &Repository, limit: usize) -> Result<Vec<models::Commit>> {
         let mut walk = repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
-        if repo.head().is_ok() {
-            walk.push_head()?;
-        } else {
-            return Ok(Vec::new());
+
+        // Push all local branch tips so every branch appears in the graph
+        let mut any_pushed = false;
+        if let Ok(refs) = repo.references() {
+            for r in refs.flatten() {
+                if r.is_branch() {
+                    if let Some(oid) = r.target() {
+                        let _ = walk.push(oid);
+                        any_pushed = true;
+                    }
+                }
+            }
+        }
+        if !any_pushed {
+            if repo.head().is_ok() {
+                walk.push_head()?;
+            } else {
+                return Ok(Vec::new());
+            }
         }
 
         let mut commits = Vec::with_capacity(limit.min(256));

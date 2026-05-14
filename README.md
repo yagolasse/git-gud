@@ -1,22 +1,7 @@
 # Git Gud
 
-A native desktop Git GUI built with Rust. Focuses on the everyday staging-and-committing workflow with a clean, fast interface.
-
-## Features
-
-- **Three-panel layout** — branches on the left, staged/unstaged files in the center, diff on the right
-- **Stage / unstage** individual files or everything at once, with context-menu support
-- **Commit panel** — summary + description fields, character-count indicator, amend checkbox
-- **Pull / Push** — fetch and push via the toolbar; uses the system `git` binary so SSH keys, agents, and credential helpers work out of the box
-- **Commit history graph** — lane-based DAG in the History tab with branch labels, relative timestamps, and hover-to-read full message
-- **Diff viewer** — unified and side-by-side modes, syntax highlighting via syntect
-- **Branch list** — local branches, remotes grouped by remote name, checkout on double-click, filterable
-- **Tags** — list tags, create annotated tags, push tags to origin
-- **Stash** — list, apply, and drop stash entries
-- **Auto-refresh** — file watcher detects external changes and refreshes the working tree automatically
-- **Session command log** — floating window (View → Show Command Log) capturing every operation with timestamp and result
-- **Light / dark mode** — toggle from the View menu, persisted across restarts
-- **Recent repositories** — reopens the last-used repository on startup
+A fast, native Git GUI for everyday use — built with Rust and egui. Designed around the
+staging-and-committing workflow with a clean three-panel layout and full keyboard support.
 
 ## Screenshots
 
@@ -25,6 +10,46 @@ A native desktop Git GUI built with Rust. Focuses on the everyday staging-and-co
 
 ### Commit Graph
 ![Commit graph](screenshots/graph-view.PNG)
+
+## What it does
+
+**Stage and commit without leaving the keyboard.** Select files, hit Space to stage, write
+your message, and commit with Ctrl+Enter. The diff panel updates as you move through the file
+list so you always see exactly what you're committing.
+
+**Pull, push, and fetch with live progress.** Network operations stream output line-by-line so
+you can see what's happening. SSH keys, agents, and HTTPS credential helpers all work through
+your system git — nothing to configure inside the app.
+
+**See the full picture in the history graph.** The History tab shows commits from all branches
+in a lane-based graph. Switch branches in the sidebar to highlight which commits belong to it.
+Right-click any commit to cherry-pick it or copy its hash.
+
+**Manage branches without the command line.** Create, rename, delete, checkout, or merge
+branches from the sidebar. Tags work the same way — create and push to origin in two clicks.
+
+**Resolve merge conflicts without switching to a terminal.** Conflicted files appear in the
+Changes panel with a red badge. (A full inline resolver with Accept Ours / Accept Theirs
+buttons is on the roadmap.)
+
+**Stash and unstash instantly.** Right-click any stash entry to pop or drop it.
+
+**Auto-refreshes when you work outside the app.** A file watcher picks up changes made by
+other tools and updates the UI automatically.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+F` | Fetch |
+| `Ctrl+Shift+L` | Pull |
+| `Ctrl+Shift+P` | Push |
+| `Ctrl+R` | Refresh |
+| `Ctrl+Enter` | Commit |
+| `↑` / `↓` | Navigate file list |
+| `Space` | Stage / unstage selected file |
+| `Enter` | Checkout selected branch |
+| `C` | Cherry-pick selected commit |
 
 ## Requirements
 
@@ -37,7 +62,8 @@ A native desktop Git GUI built with Rust. Focuses on the everyday staging-and-co
 cargo build --release
 ```
 
-The binary is written to `target/release/git-gud.exe` (Windows) or `target/release/git-gud` (macOS/Linux).
+The binary lands at `target/release/git-gud.exe` (Windows) or `target/release/git-gud`
+(macOS/Linux).
 
 ## Run
 
@@ -53,15 +79,11 @@ cargo run -- /path/to/repo
 
 ```powershell
 cargo check       # fast type-check
-cargo test        # 101 tests
+cargo test        # 126 tests
 cargo clippy      # lint
 ```
 
-All tests use temporary Git repositories via `tempfile`; no side effects on the real filesystem.
-
-## Network Operations
-
-Pull and push delegate to the system `git` binary (`std::process::Command`). This means your SSH config (`~/.ssh/config`), SSH agent, `known_hosts`, and HTTPS credential helpers are all used automatically — no configuration required inside Git Gud.
+Tests use temporary Git repositories — no side effects on the real filesystem.
 
 ## Tech Stack
 
@@ -80,14 +102,11 @@ Pull and push delegate to the system `git` binary (`std::process::Command`). Thi
 
 | Feature | Notes |
 |---------|-------|
-| Push to upstream-less branch | Auto `--set-upstream` when no tracking branch exists |
-| Pull progress reporting | Stream system git output to the UI instead of blocking |
-| Fetch (without merge) | `git fetch origin` via toolbar |
-| SSH passphrase prompt | For keys not loaded in the agent |
+| Merge conflict resolver | Inline Accept Ours / Accept Theirs per conflict hunk |
 | Amend commit | Wire the existing checkbox |
 | Word-level diff | Highlight changed words inside modified lines |
 | Diff search | Find text within the diff viewer |
-| Settings dialog | Configure preferences from the UI |
+| Worktree support | List, create, remove git worktrees |
 
 ## License
 

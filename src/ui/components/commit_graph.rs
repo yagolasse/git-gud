@@ -1,7 +1,7 @@
 use crate::models::Commit;
 use crate::state::AppState;
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, Vec2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const ROW_HEIGHT: f32 = 28.0;
 const LANE_WIDTH: f32 = 14.0;
@@ -139,6 +139,22 @@ fn build_graph(commits: &[Commit]) -> Vec<GraphRow> {
     rows
 }
 
+/// BFS from `tip_id` through `commits` parent links; returns all reachable IDs.
+fn reachable_from(tip_id: &str, commits: &[Commit]) -> HashSet<String> {
+    let parent_map: HashMap<&str, &[String]> =
+        commits.iter().map(|c| (c.id.as_str(), c.parents.as_slice())).collect();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue = vec![tip_id.to_owned()];
+    while let Some(id) = queue.pop() {
+        if visited.insert(id.clone()) {
+            if let Some(parents) = parent_map.get(id.as_str()) {
+                queue.extend(parents.iter().cloned());
+            }
+        }
+    }
+    visited
+}
+
 pub struct CommitGraph {
     rows: Vec<GraphRow>,
     selected: Option<usize>,
@@ -204,6 +220,16 @@ impl CommitGraph {
                 }
             }
             m
+        };
+
+        // Commits reachable from the selected (or current) branch — used to dim others.
+        let on_branch: HashSet<String> = {
+            let tip = state.repository_state.as_ref().and_then(|rs| {
+                let name = state.ui_state.selected_branch_name()
+                    .or_else(|| rs.branches.iter().find(|b| b.is_current).map(|b| b.name.as_str()));
+                name.and_then(|n| rs.branches.iter().find(|b| b.name == n).map(|b| b.commit_id.clone()))
+            });
+            tip.map(|id| reachable_from(&id, &commits)).unwrap_or_default()
         };
 
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -347,6 +373,16 @@ impl CommitGraph {
                         }
                     }
 
+                    // Dim commits not reachable from the selected/current branch
+                    let is_on_branch = on_branch.is_empty() || on_branch.contains(&commit.id);
+                    let msg_color = if selected {
+                        p.accent_text
+                    } else if is_on_branch {
+                        p.text_primary
+                    } else {
+                        p.text_tertiary
+                    };
+
                     // Commit message — measure author+date first so we know how much is left
                     let msg_x = label_end_x + 4.0;
                     let summary = commit.message.lines().next().unwrap_or("").trim();
@@ -364,7 +400,7 @@ impl CommitGraph {
                         egui::Align2::LEFT_CENTER,
                         &display_msg,
                         msg_font,
-                        p.text_primary,
+                        msg_color,
                     );
 
                     // Author + date (right side)
@@ -379,6 +415,10 @@ impl CommitGraph {
             });
 
         cherry_pick_id
+    }
+
+    pub fn selected_commit_id<'a>(&self, commits: &'a [crate::models::Commit]) -> Option<&'a str> {
+        self.selected.and_then(|idx| commits.get(idx)).map(|c| c.id.as_str())
     }
 }
 

@@ -108,6 +108,8 @@ impl MainWindow {
             state.poll_network();
         }
 
+        self.handle_global_shortcuts(ctx);
+
         self.passphrase_dialog.poll_and_show(ctx, &mut self.state.lock().ui_state);
 
         // Sync dark mode and set egui visuals
@@ -485,12 +487,152 @@ impl MainWindow {
             });
     }
 
+    fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
+        let typing = ctx.wants_keyboard_input();
+
+        ctx.input(|i| {
+            // Ctrl+Enter — commit (active even while typing in the message box)
+            if i.key_pressed(egui::Key::Enter) && i.modifiers.ctrl {
+                let mut state = self.state.lock();
+                let msg = state.ui_state.commit_message().trim().to_owned();
+                if !msg.is_empty() {
+                    state.ui_state.pending_action =
+                        Some(crate::state::PendingAction::CreateCommit(msg));
+                }
+            }
+
+            if typing { return; }
+
+            // Ctrl+Shift+F — Fetch
+            if i.key_pressed(egui::Key::F) && i.modifiers.ctrl && i.modifiers.shift {
+                self.state.lock().ui_state.pending_action =
+                    Some(crate::state::PendingAction::Fetch);
+            }
+            // Ctrl+Shift+L — Pull
+            if i.key_pressed(egui::Key::L) && i.modifiers.ctrl && i.modifiers.shift {
+                self.state.lock().ui_state.pending_action =
+                    Some(crate::state::PendingAction::Pull);
+            }
+            // Ctrl+Shift+P — Push
+            if i.key_pressed(egui::Key::P) && i.modifiers.ctrl && i.modifiers.shift {
+                self.state.lock().ui_state.pending_action =
+                    Some(crate::state::PendingAction::Push);
+            }
+            // Ctrl+R — Refresh
+            if i.key_pressed(egui::Key::R) && i.modifiers.ctrl {
+                let mut state = self.state.lock();
+                if state.has_repository() {
+                    if let Err(e) = state.repository_state_mut().refresh() {
+                        state.set_error(format!("Refresh failed: {}", e));
+                    }
+                }
+            }
+
+            // ArrowUp / ArrowDown — navigate file list
+            let up = i.key_pressed(egui::Key::ArrowUp);
+            let down = i.key_pressed(egui::Key::ArrowDown);
+            if up || down {
+                let mut state = self.state.lock();
+                if let Some(rs) = state.repository_state.as_ref() {
+                    let paths: Vec<std::path::PathBuf> = rs.staged_files.iter()
+                        .chain(rs.unstaged_files.iter())
+                        .map(|f| f.path.clone())
+                        .collect();
+                    if !paths.is_empty() {
+                        let cur = state.ui_state.selected_file.as_ref();
+                        let idx = cur
+                            .and_then(|p| paths.iter().position(|q| q == p))
+                            .unwrap_or(0);
+                        let next = if down {
+                            (idx + 1).min(paths.len() - 1)
+                        } else {
+                            idx.saturating_sub(1)
+                        };
+                        state.ui_state.select_file(paths[next].clone());
+                    }
+                }
+            }
+
+            // Space — stage / unstage selected file
+            if i.key_pressed(egui::Key::Space) {
+                let mut state = self.state.lock();
+                if let Some(path) = state.ui_state.selected_file.clone() {
+                    let is_staged = state.repository_state()
+                        .staged_files.iter().any(|f| f.path == path);
+                    if is_staged {
+                        state.ui_state.pending_action =
+                            Some(crate::state::PendingAction::UnstageSelected(vec![path]));
+                    } else {
+                        state.ui_state.pending_action =
+                            Some(crate::state::PendingAction::StageSelected(vec![path]));
+                    }
+                }
+            }
+
+            // Enter — checkout selected branch
+            if i.key_pressed(egui::Key::Enter) && !i.modifiers.ctrl {
+                let mut state = self.state.lock();
+                if let Some(name) = state.ui_state.selected_branch.clone() {
+                    let already_current = state.repository_state.as_ref()
+                        .map(|rs| rs.branches.iter().any(|b| b.name == name && b.is_current))
+                        .unwrap_or(false);
+                    if !already_current {
+                        match state.repository_state_mut().checkout_branch(&name) {
+                            Ok(()) => state.set_info(format!("Checked out: {}", name)),
+                            Err(e) => {
+                                let msg = e.to_string();
+                                let display = if msg.to_lowercase().contains("conflict") {
+                                    format!("Cannot checkout '{}': resolve conflicts first", name)
+                                } else {
+                                    format!("Failed to checkout {}: {}", name, e)
+                                };
+                                state.set_error(display);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // C — cherry-pick selected commit
+            if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.shift {
+                let mut state = self.state.lock();
+                let commit_id = state.repository_state.as_ref()
+                    .and_then(|rs| self.commit_graph.selected_commit_id(&rs.commits))
+                    .map(|s| s.to_owned());
+                if let Some(id) = commit_id {
+                    let short = id[..7.min(id.len())].to_owned();
+                    match state.repository_state_mut().cherry_pick(&id) {
+                        Ok(()) => state.set_info(format!("Cherry-picked {}", short)),
+                        Err(e) => {
+                            let msg = e.to_string();
+                            if msg.contains("allow-empty") || msg.contains("is now empty") {
+                                let _ = state.repository_state_mut().cherry_pick_skip();
+                                state.set_info(format!("Skipped {}: already on this branch", short));
+                            } else {
+                                state.set_error(format!("Cherry-pick failed: {}", e));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     fn show_history_tab(&mut self, ui: &mut egui::Ui) {
         let mut state = self.state.lock();
         if let Some(commit_id) = self.commit_graph.show(ui, &mut state) {
+            let short = &commit_id[..7.min(commit_id.len())];
             match state.repository_state_mut().cherry_pick(&commit_id) {
-                Ok(()) => state.set_info(format!("Cherry-picked {}", &commit_id[..7.min(commit_id.len())])),
-                Err(e) => state.set_error(format!("Cherry-pick failed: {}", e)),
+                Ok(()) => state.set_info(format!("Cherry-picked {}", short)),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("allow-empty") || msg.contains("is now empty") {
+                        let _ = state.repository_state_mut().cherry_pick_skip();
+                        state.set_info(format!("Skipped {}: changes already present on this branch", short));
+                    } else {
+                        state.set_error(format!("Cherry-pick failed: {}", e));
+                    }
+                }
             }
         }
     }

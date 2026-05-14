@@ -34,7 +34,7 @@ src/
 │   ├── mod.rs
 │   ├── askpass.rs             # TCP-loopback IPC bridge for GIT_ASKPASS
 │   ├── git_command.rs         # Git binary abstraction (config, env, error classification)
-│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, checkout)
+│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, checkout, cherry-pick, merge, fetch, conflict detection)
 │   ├── diff_parser.rs         # Parse unified diff text → structured types
 │   ├── file_watcher_service.rs# notify-based auto-refresh
 │   ├── log_service.rs         # Logging helpers
@@ -49,12 +49,12 @@ src/
 └── ui/
     ├── mod.rs
     ├── colors.rs              # Shared Palette struct — LIGHT and DARK consts, get(dark) fn
-    ├── main_window.rs         # MainWindow — layout, menus, panels, dark mode sync, passphrase poll
+    ├── main_window.rs         # MainWindow — layout, menus, panels, dark mode sync, passphrase poll, global keyboard shortcuts
     └── components/
         ├── mod.rs
         ├── branch_list.rs     # Sidebar branch/remote/tag sections
         ├── command_log.rs     # Floating session log window (View menu)
-        ├── commit_graph.rs    # Lane-based commit DAG
+        ├── commit_graph.rs    # Lane-based commit DAG, all-branch graph with per-branch highlight, cherry-pick support
         ├── commit_panel.rs    # Summary + description + Commit button
         ├── enhanced_diff_viewer.rs # Unified + split diff, dark content area
         ├── error_dialog.rs    # Modal error dialog
@@ -133,7 +133,7 @@ Cross-platform: TCP loopback (`127.0.0.1`) is identical on Windows, macOS, and L
 
 `AppState.network_status: NetworkStatus` tracks ongoing remote operations:
 - `Idle` — no operation running
-- `Running { operation, lines, progress, lines_rx, is_pull }` — pull/push runs in a background thread; toolbar shows an inline circular spinner next to the active button; `poll_network()` drains the mpsc channel each frame
+- `Running { operation, lines, progress, lines_rx, refresh_on_complete }` — pull/push runs in a background thread; toolbar shows an inline circular spinner next to the active button; `poll_network()` drains the mpsc channel each frame
 
 `NetworkStatus` manually implements `Clone` (returns `Idle`) because `Receiver<StreamLine>` is not `Clone`.
 
@@ -154,7 +154,7 @@ Each component is a struct with a `show(&mut self, ui: &mut egui::Ui, state: &mu
 ```powershell
 rtk cargo check          # Fast type-check (no binary)
 rtk cargo build          # Full build
-rtk cargo test           # Run all tests (101 expected to pass)
+rtk cargo test           # Run all tests (126 expected to pass)
 rtk cargo clippy         # Lint
 ```
 
@@ -167,11 +167,27 @@ rtk cargo clippy         # Lint
 
 ### Always After Every Change
 1. `rtk cargo check` — must pass with zero errors
-2. `rtk cargo test` — all 101 tests must still pass
+2. `rtk cargo test` — all 126 tests must still pass
 3. Never run the GUI yourself — the user tests the UI
 
 ### Interface First
 When adding a feature that touches multiple files, define the types/signatures in models/state first, then implement.
+
+### Keyboard Shortcuts
+
+Global shortcuts are handled in `MainWindow::handle_global_shortcuts()` (called each frame before UI rendering). All shortcuts except `Ctrl+Enter` are suppressed when a text field has focus (`ctx.wants_keyboard_input()`).
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+F` | Fetch |
+| `Ctrl+Shift+L` | Pull |
+| `Ctrl+Shift+P` | Push |
+| `Ctrl+R` | Refresh repository |
+| `Ctrl+Enter` | Commit (fires even from inside the message box) |
+| `↑` / `↓` | Navigate file list (staged then unstaged) |
+| `Space` | Stage / unstage selected file |
+| `Enter` | Checkout selected branch |
+| `C` | Cherry-pick selected commit (History tab) |
 
 ## Known TODOs / Unimplemented
 
@@ -182,6 +198,6 @@ When adding a feature that touches multiple files, define the types/signatures i
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
-| Push to upstream-less branch | `git_service.rs` `push()` | Needs `--set-upstream` / `-u` flag when no tracking branch exists |
-| Fetch (without merge) | `toolbar.rs` | Button calls `refresh_repository()`; should run `git fetch origin` |
 | Add remote | `toolbar.rs` | No UI yet to add/configure remotes |
+| Merge conflict resolver | `enhanced_diff_viewer.rs` | Plan written; shows conflict markers, Accept Ours/Theirs buttons |
+| Worktree support | — | List, create, remove git worktrees |
