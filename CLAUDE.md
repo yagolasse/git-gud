@@ -168,7 +168,7 @@ rtk cargo clippy         # Lint
 
 ### Always After Every Change
 1. `rtk cargo check` — must pass with zero errors
-2. `rtk cargo test` — all 126 tests must still pass
+2. `rtk cargo test` — all 130 tests must still pass
 3. Never run the GUI yourself — the user tests the UI
 
 ### Interface First
@@ -199,6 +199,27 @@ Global shortcuts are handled in `MainWindow::handle_global_shortcuts()` (called 
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
+
+## Recently Implemented Features
+
+| Feature | Location | Notes |
+|---------|----------|-------|
+| Graph lines avoid merge dots | `commit_graph.rs` | Pass-through verticals split above/below dot |
+| Open repo: direct folder picker | `main_window.rs` | File menu "Open Repository" goes straight to picker |
+| Push/pull arrows for all branches | `branch_list.rs` + `git_service.rs` | `ahead`/`behind` computed for all local branches |
+| Worktree "+" moved to Repository menu | `branch_list.rs` + `main_window.rs` | "New Worktree…" in Repository menu |
+| Stash apply (without pop) | `branch_list.rs` + `git_service.rs` | Stash context menu shows Apply and Pop separately |
+| Stash preserved on apply conflict | `git_service.rs` | Falls back to apply-only when pop produces conflicts |
+| Large file diff truncation | `git_service.rs` | Diffs >5000 lines are truncated with a header notice |
+| Diff settings popup | `enhanced_diff_viewer.rs` | Gear icon opens popup with context lines, whitespace, etc. |
+| Smart pull dialog | `main_window.rs` + `toolbar.rs` | Lets user pick branch and auto-stash local changes |
+| Multi-file select (stage/discard) | `file_list.rs` | Ctrl+click multi-select; stage/discard all selected |
+| Folder/file tree view | `file_list.rs` | List/Tree toggle; collapsible folders; folder-level stage |
+| Remove "+" from section headers | `file_list.rs` | "Stage all"/"Unstage all" text labels instead of "+" |
+| Arrow spacing in branch list | `branch_list.rs` | Space between arrow and ahead/behind count |
+| "New Repository" in File menu | `main_window.rs` | Moved from Repository menu only |
+| Hide main worktree from list | `branch_list.rs` | Filters out the repo root worktree entry |
+| Hover tooltips on toolbar buttons | `toolbar.rs` + `main_window.rs` | Shortcut hints on Fetch/Pull/Push/branch buttons |
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
