@@ -317,14 +317,12 @@ impl AppState {
                         self.ui_state.clear_commit_message();
                     }
                 }
-                super::ui_state::PendingAction::Pull => {
-                    let net_info = self.repository_state.as_ref().and_then(|rs| {
-                        let workdir = rs.repository.workdir()?.to_path_buf();
-                        let branch = rs.repository.head().ok()?.shorthand()?.to_string();
-                        Some((workdir, branch))
-                    });
-                    if let Some((workdir, branch)) = net_info {
-                        let args = vec!["pull".to_string(), "--ff-only".to_string(), "origin".to_string(), branch];
+                super::ui_state::PendingAction::Pull(ref_spec) => {
+                    let workdir = self.repository_state.as_ref()
+                        .and_then(|rs| rs.repository.workdir().map(|p| p.to_path_buf()));
+                    if let Some(workdir) = workdir {
+                        let (remote, branch) = parse_remote_branch(&ref_spec);
+                        let args = vec!["pull".to_string(), "--ff-only".to_string(), remote, branch];
                         match crate::services::git_command::run_streaming_std(&workdir, args) {
                             Ok(rx) => {
                                 self.network_status = NetworkStatus::Running {
@@ -336,6 +334,39 @@ impl AppState {
                                 };
                             }
                             Err(e) => self.set_error(format!("Pull failed: {}", e)),
+                        }
+                    }
+                }
+                super::ui_state::PendingAction::PullWithAutoStash(ref_spec) => {
+                    // Stash any local changes, then start the pull operation.
+                    // After the pull completes successfully, poll_network pops stash index 0.
+                    let stash_result = self.repository_state.as_mut()
+                        .map(|rs| rs.stash_save("auto-stash before pull"));
+                    // "nothing to stash" is not an error — just proceed with pull without auto-stash pop
+                    let nothing_to_stash = matches!(&stash_result, Some(Err(e)) if e.to_string().to_lowercase().contains("nothing to stash"));
+                    match stash_result {
+                        Some(Err(e)) if !nothing_to_stash => self.set_error(format!("Failed to stash: {}", e)),
+                        _ => {
+                            let workdir = self.repository_state.as_ref()
+                                .and_then(|rs| rs.repository.workdir().map(|p| p.to_path_buf()));
+                            if let Some(workdir) = workdir {
+                                let (remote, branch) = parse_remote_branch(&ref_spec);
+                                let args = vec!["pull".to_string(), "--ff-only".to_string(), remote, branch];
+                                // Use "PullAutoStash" only when a stash was actually created
+                                let op_name = if nothing_to_stash { "Pull" } else { "PullAutoStash" };
+                                match crate::services::git_command::run_streaming_std(&workdir, args) {
+                                    Ok(rx) => {
+                                        self.network_status = NetworkStatus::Running {
+                                            operation: op_name.into(),
+                                            lines: Vec::new(),
+                                            progress: -1.0,
+                                            lines_rx: rx,
+                                            refresh_on_complete: true,
+                                        };
+                                    }
+                                    Err(e) => self.set_error(format!("Pull failed: {}", e)),
+                                }
+                            }
                         }
                     }
                 }
@@ -455,19 +486,44 @@ impl AppState {
         };
 
         if let Some((result, refresh_on_complete, operation)) = outcome {
+            let is_auto_stash = operation == "PullAutoStash";
             match result {
                 Ok(()) => {
-                    self.set_info(format!("{} successful", operation));
+                    let display_op = if is_auto_stash { "Pull" } else { &operation };
+                    self.set_info(format!("{} successful", display_op));
                     if refresh_on_complete
                         && let Some(rs) = self.repository_state.as_mut() {
                             let _ = rs.refresh();
                         }
+                    if is_auto_stash
+                        && let Some(rs) = self.repository_state.as_mut() {
+                            match rs.stash_pop(0) {
+                                Ok(()) => self.set_info("Stash reapplied after pull".to_string()),
+                                Err(e) => self.set_error(format!("Pull succeeded but stash reapply failed: {}", e)),
+                            }
+                        }
                 }
-                Err(e) => self.set_error(e),
+                Err(e) => {
+                    if is_auto_stash {
+                        self.set_error(format!("{} (your changes are stashed — pop with 'git stash pop' to recover)", e));
+                    } else {
+                        self.set_error(e);
+                    }
+                }
             }
             self.network_status = NetworkStatus::Idle;
             self.validate_file_selection();
         }
+    }
+}
+
+/// Split a `"remote/branch"` refspec into `(remote, branch)`.
+/// Falls back to `("origin", refspec)` when no `/` is found.
+fn parse_remote_branch(ref_spec: &str) -> (String, String) {
+    if let Some(pos) = ref_spec.find('/') {
+        (ref_spec[..pos].to_string(), ref_spec[pos + 1..].to_string())
+    } else {
+        ("origin".to_string(), ref_spec.to_string())
     }
 }
 

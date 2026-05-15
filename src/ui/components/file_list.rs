@@ -5,6 +5,14 @@ use eframe::egui;
 use std::cell::Cell;
 use std::path::PathBuf;
 
+/// Which multi-selection action was triggered from the context menu
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MultiAction {
+    None,
+    StageOrUnstage,
+    Discard,
+}
+
 pub struct FileList {
     staged_open: bool,
     changes_open: bool,
@@ -40,8 +48,13 @@ impl FileList {
         let mut file_to_discard: Option<PathBuf> = None;
         let mut stage_all = false;
         let mut unstage_all = false;
+        let mut multi_stage: Option<Vec<PathBuf>> = None;
+        let mut multi_unstage: Option<Vec<PathBuf>> = None;
+        let mut multi_discard: Option<Vec<PathBuf>> = None;
 
         let discard_confirm_path = self.discard_confirm.clone();
+
+        let sel_count = state.ui_state.selection.len();
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -54,10 +67,22 @@ impl FileList {
                     if unstage_all_clicked { unstage_all = true; }
                     if self.staged_open {
                         for file in &staged_files {
-                            let (sel, action, hist, _, _) = Self::show_file_row(ui, p, &selected_file, file, true, false);
-                            if sel { file_to_select = Some(file.path.clone()); }
+                            let in_selection = state.ui_state.is_selected(&file.path);
+                            let multi_sel = if in_selection { sel_count } else { 0 };
+                            let (sel, action, hist, _, _, ctrl_click, multi) =
+                                Self::show_file_row(ui, p, &selected_file, file, true, false, multi_sel);
+                            if ctrl_click {
+                                state.ui_state.toggle_selection(file.path.clone());
+                            } else if sel {
+                                state.ui_state.clear_selection();
+                                file_to_select = Some(file.path.clone());
+                            }
                             if action { file_to_unstage = Some(file.path.clone()); }
                             if hist { file_history_for = Some(file.path.clone()); }
+                            if multi == MultiAction::StageOrUnstage {
+                                // Staged section: multi-action is always unstage
+                                multi_unstage = Some(state.ui_state.selection.iter().cloned().collect());
+                            }
                         }
                     }
                 }
@@ -70,13 +95,26 @@ impl FileList {
                 if self.changes_open {
                     for file in &unstaged_files {
                         let in_confirm = discard_confirm_path.as_ref() == Some(&file.path);
-                        let (sel, action, hist, want_confirm, confirmed) =
-                            Self::show_file_row(ui, p, &selected_file, file, false, in_confirm);
-                        if sel { file_to_select = Some(file.path.clone()); }
+                        let in_selection = state.ui_state.is_selected(&file.path);
+                        let multi_sel = if in_selection { sel_count } else { 0 };
+                        let (sel, action, hist, want_confirm, confirmed, ctrl_click, multi) =
+                            Self::show_file_row(ui, p, &selected_file, file, false, in_confirm, multi_sel);
+                        if ctrl_click {
+                            state.ui_state.toggle_selection(file.path.clone());
+                        } else if sel {
+                            state.ui_state.clear_selection();
+                            file_to_select = Some(file.path.clone());
+                        }
                         if action { file_to_stage = Some(file.path.clone()); }
                         if hist { file_history_for = Some(file.path.clone()); }
                         if want_confirm { file_discard_want_confirm = Some(file.path.clone()); }
                         if confirmed { file_to_discard = Some(file.path.clone()); }
+                        if multi == MultiAction::StageOrUnstage {
+                            multi_stage = Some(state.ui_state.selection.iter().cloned().collect());
+                        }
+                        if multi == MultiAction::Discard {
+                            multi_discard = Some(state.ui_state.selection.iter().cloned().collect());
+                        }
                     }
                     if unstaged_files.is_empty() {
                         Self::show_empty_hint(ui, p, "No changes", 16.0);
@@ -104,6 +142,27 @@ impl FileList {
         if unstage_all {
             let paths: Vec<_> = state.repository_state().staged_files.iter().map(|f| f.path.clone()).collect();
             state.ui_state.pending_action = Some(crate::state::PendingAction::UnstageAll(paths));
+        }
+        if let Some(paths) = multi_stage {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::StageSelected(paths));
+            state.ui_state.clear_selection();
+        }
+        if let Some(paths) = multi_unstage {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::UnstageSelected(paths));
+            state.ui_state.clear_selection();
+        }
+        if let Some(paths) = multi_discard {
+            let has_repo = state.repository_state.is_some();
+            if has_repo {
+                // Discard each path individually; ignore per-file errors (best effort)
+                for path in &paths {
+                    if let Some(repo_state) = &state.repository_state {
+                        let _ = crate::services::GitService::discard_changes(&repo_state.repository, path);
+                    }
+                }
+                let _ = state.refresh_repository();
+            }
+            state.ui_state.clear_selection();
         }
         if let Some(path) = file_to_stage {
             if let Err(e) = state.repository_state_mut().stage_files(std::slice::from_ref(&path)) {
@@ -220,6 +279,9 @@ impl FileList {
         action_clicked
     }
 
+    /// Returns: (row_selected, stage_or_unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action)
+    ///
+    /// `multi_sel_count`: 0 = file not in multi-selection, >1 = in multi-selection with this many files.
     fn show_file_row(
         ui: &mut egui::Ui,
         p: &Palette,
@@ -227,11 +289,15 @@ impl FileList {
         file: &FileChange,
         is_staged: bool,
         discard_confirm: bool,
-    ) -> (bool, bool, bool, bool, bool) {
+        multi_sel_count: usize,
+    ) -> (bool, bool, bool, bool, bool, bool, MultiAction) {
         let is_selected = selected_file.as_ref() == Some(&file.path);
         let available_width = ui.available_width();
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
+
+        let ctrl_held = ui.input(|i| i.modifiers.ctrl);
+        let ctrl_click = response.clicked() && ctrl_held;
 
         let y = rect.center().y;
         // Use a fixed icon slot on the right edge — same rect for both badge and action button
@@ -240,9 +306,11 @@ impl FileList {
         let btn_id = ui.id().with(&file.path).with(is_staged).with("action");
         let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
 
+        let in_multi_selection = multi_sel_count > 0;
+
         if ui.is_rect_visible(rect) {
             let hovered = response.hovered() || btn.hovered();
-            let bg = if is_selected {
+            let bg = if is_selected || in_multi_selection {
                 p.accent_sel_bg
             } else if hovered {
                 p.bg_secondary
@@ -323,6 +391,7 @@ impl FileList {
         let history_from_menu = Cell::new(false);
         let discard_want_confirm = Cell::new(false);
         let discard_confirmed = Cell::new(false);
+        let multi_action: Cell<MultiAction> = Cell::new(MultiAction::None);
         let can_stage = file.status != FileStatus::Conflicted;
         let can_discard = !is_staged;
         response.context_menu(|ui| {
@@ -353,16 +422,37 @@ impl FileList {
                 history_from_menu.set(true);
                 ui.close_menu();
             }
+            // Multi-selection actions — only when this file is part of a multi-selection (>1)
+            if multi_sel_count > 1 {
+                ui.separator();
+                if is_staged {
+                    if ui.button(format!("Unstage selected ({})", multi_sel_count)).clicked() {
+                        multi_action.set(MultiAction::StageOrUnstage);
+                        ui.close_menu();
+                    }
+                } else {
+                    if ui.button(format!("Stage selected ({})", multi_sel_count)).clicked() {
+                        multi_action.set(MultiAction::StageOrUnstage);
+                        ui.close_menu();
+                    }
+                    if can_discard && ui.button(format!("Discard selected ({})", multi_sel_count)).clicked() {
+                        multi_action.set(MultiAction::Discard);
+                        ui.close_menu();
+                    }
+                }
+            }
         });
 
         let action = (btn.clicked() || action_from_menu.get()) && can_stage;
-        // (row selected, stage/unstage, show history, enter discard confirm, confirmed discard)
+        // (row_selected, stage/unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action)
         (
-            response.clicked() && !btn.clicked(),
+            response.clicked() && !btn.clicked() && !ctrl_held,
             action,
             history_from_menu.get(),
             discard_want_confirm.get(),
             discard_confirmed.get(),
+            ctrl_click,
+            multi_action.get(),
         )
     }
 

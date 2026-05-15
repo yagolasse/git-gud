@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Pending actions that need to be executed after UI rendering
@@ -9,7 +10,10 @@ pub enum PendingAction {
     UnstageSelected(Vec<PathBuf>),
     CheckoutBranch(String),
     CreateCommit(String),
-    Pull,
+    /// Pull from the given `remote/branch` refspec (e.g. `"origin/main"`).
+    Pull(String),
+    /// Same as Pull but stashes local changes first and reapplies them after.
+    PullWithAutoStash(String),
     Push,
     Fetch,
     PushTag(String),
@@ -77,6 +81,14 @@ pub struct UIState {
     /// File history panel
     pub show_file_history: bool,
     pub file_history_path: Option<PathBuf>,
+
+    /// Multi-file selection set (separate from `selected_file` which drives the diff viewer)
+    pub selection: HashSet<PathBuf>,
+
+    /// Pull dialog visibility and settings
+    pub show_pull_dialog: bool,
+    pub pull_from_branch: String,
+    pub pull_auto_stash: bool,
 }
 
 impl UIState {
@@ -111,6 +123,10 @@ impl UIState {
             new_worktree_branch: String::new(),
             show_file_history: false,
             file_history_path: None,
+            selection: HashSet::new(),
+            show_pull_dialog: false,
+            pull_from_branch: String::new(),
+            pull_auto_stash: false,
         }
     }
 
@@ -200,6 +216,24 @@ impl UIState {
         self.clear_commit_message();
         self.pending_action = None;
         self.files_staged_or_unstaged = false;
+        self.selection.clear();
+        self.show_pull_dialog = false;
+        self.pull_from_branch.clear();
+        self.pull_auto_stash = false;
+    }
+
+    pub fn toggle_selection(&mut self, path: PathBuf) {
+        if !self.selection.insert(path.clone()) {
+            self.selection.remove(&path);
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection.clear();
+    }
+
+    pub fn is_selected(&self, path: &PathBuf) -> bool {
+        self.selection.contains(path)
     }
 }
 

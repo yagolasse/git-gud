@@ -114,7 +114,12 @@ impl Toolbar {
             .on_hover_text("Ctrl+Shift+L");
         x = pull_r.max.x + 4.0;
         if pull_clk && state.has_repository() {
-            state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
+            let default_branch = state.repository_state.as_ref()
+                .and_then(|rs| rs.model.head.clone())
+                .map(|h| format!("origin/{}", h))
+                .unwrap_or_default();
+            state.ui_state.pull_from_branch = default_branch;
+            state.ui_state.show_pull_dialog = true;
         }
         if pull_running {
             x = inline_spinner(ui, p, x, cy, net_progress, net_last_line.as_deref());

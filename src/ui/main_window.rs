@@ -118,6 +118,53 @@ impl MainWindow {
             self.file_history.show(ctx, &mut state);
         }
 
+        // Pull dialog
+        {
+            let show = self.state.lock().ui_state.show_pull_dialog;
+            if show {
+                let ctx_clone = ctx.clone();
+                let mut do_pull = false;
+                let mut do_cancel = false;
+                {
+                    let mut state = self.state.lock();
+                    egui::Window::new("Pull")
+                        .collapsible(false)
+                        .resizable(false)
+                        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                        .show(&ctx_clone, |ui| {
+                            ui.label("Pull from:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut state.ui_state.pull_from_branch)
+                                    .desired_width(220.0)
+                                    .hint_text("origin/main"),
+                            );
+                            ui.add_space(4.0);
+                            ui.checkbox(&mut state.ui_state.pull_auto_stash, "Stash changes, pull, reapply");
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                let branch_ok = !state.ui_state.pull_from_branch.trim().is_empty();
+                                if ui.add_enabled(branch_ok, egui::Button::new("Pull")).clicked() { do_pull = true; }
+                                if ui.button("Cancel").clicked() { do_cancel = true; }
+                            });
+                        });
+                }
+                if do_pull {
+                    let mut state = self.state.lock();
+                    let auto_stash = state.ui_state.pull_auto_stash;
+                    let ref_spec = state.ui_state.pull_from_branch.clone();
+                    state.ui_state.show_pull_dialog = false;
+                    if auto_stash {
+                        state.ui_state.pending_action = Some(crate::state::PendingAction::PullWithAutoStash(ref_spec));
+                    } else {
+                        state.ui_state.pending_action = Some(crate::state::PendingAction::Pull(ref_spec));
+                    }
+                }
+                if do_cancel {
+                    self.state.lock().ui_state.show_pull_dialog = false;
+                }
+            }
+        }
+
         // Sync dark mode and set egui visuals
         self.dark_mode = self.state.lock().dark_mode;
         if self.dark_mode {
@@ -233,7 +280,12 @@ impl MainWindow {
                         ui.close_menu();
                     }
                     if ui.add_enabled(has_repo, egui::Button::new("Pull").shortcut_text("Ctrl+Shift+L")).clicked() {
-                        state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
+                        let default_branch = state.repository_state.as_ref()
+                            .and_then(|rs| rs.model.head.clone())
+                            .map(|h| format!("origin/{}", h))
+                            .unwrap_or_default();
+                        state.ui_state.pull_from_branch = default_branch;
+                        state.ui_state.show_pull_dialog = true;
                         ui.close_menu();
                     }
                     if ui.add_enabled(has_repo, egui::Button::new("Push").shortcut_text("Ctrl+Shift+P")).clicked() {
@@ -608,10 +660,17 @@ impl MainWindow {
                 self.state.lock().ui_state.pending_action =
                     Some(crate::state::PendingAction::Fetch);
             }
-            // Ctrl+Shift+L — Pull
+            // Ctrl+Shift+L — Pull (open pull dialog)
             if i.key_pressed(egui::Key::L) && i.modifiers.ctrl && i.modifiers.shift {
-                self.state.lock().ui_state.pending_action =
-                    Some(crate::state::PendingAction::Pull);
+                let mut state = self.state.lock();
+                if state.has_repository() {
+                    let default_branch = state.repository_state.as_ref()
+                        .and_then(|rs| rs.model.head.clone())
+                        .map(|h| format!("origin/{}", h))
+                        .unwrap_or_default();
+                    state.ui_state.pull_from_branch = default_branch;
+                    state.ui_state.show_pull_dialog = true;
+                }
             }
             // Ctrl+Shift+P — Push
             if i.key_pressed(egui::Key::P) && i.modifiers.ctrl && i.modifiers.shift {
