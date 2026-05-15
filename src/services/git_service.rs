@@ -408,6 +408,32 @@ impl GitService {
         Ok(())
     }
 
+    /// Discard working-directory changes for a file.
+    /// For tracked files: restores the index version (equivalent to `git checkout -- <path>`).
+    /// For untracked files: deletes the file.
+    pub fn discard_changes(repo: &Repository, path: &Path) -> Result<()> {
+        let workdir = repo.workdir().ok_or_else(|| anyhow!("bare repository"))?;
+        let relative = if path.is_absolute() { path.strip_prefix(workdir).unwrap_or(path) } else { path };
+
+        let mut index = repo.index()?;
+        if index.get_path(relative, 0).is_some() {
+            // Tracked: restore from index
+            let mut checkout_opts = git2::build::CheckoutBuilder::new();
+            checkout_opts.path(relative).force();
+            repo.checkout_index(Some(&mut index), Some(&mut checkout_opts))?;
+        } else {
+            // Untracked: just delete
+            let abs = workdir.join(relative);
+            if abs.is_file() {
+                std::fs::remove_file(&abs)?;
+            } else if abs.is_dir() {
+                std::fs::remove_dir_all(&abs)?;
+            }
+        }
+        log::info!("Discarded changes for {:?}", relative);
+        Ok(())
+    }
+
     /// Get diff for a file
     pub fn get_file_diff(repo: &Repository, path: &Path) -> Result<String> {
         log::info!("Getting diff for file: {:?}", path);

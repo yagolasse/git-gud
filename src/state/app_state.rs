@@ -406,6 +406,19 @@ impl AppState {
                         Err(e) => self.set_error(format!("Resolve failed: {}", e)),
                     }
                 }
+                super::ui_state::PendingAction::DiscardChanges(path) => {
+                    if let Some(repo_state) = &self.repository_state {
+                        match crate::services::GitService::discard_changes(&repo_state.repository, &path) {
+                            Ok(()) => {
+                                self.set_info(format!("Discarded changes to '{}'", path.display()));
+                                if let Some(rs) = &mut self.repository_state {
+                                    let _ = rs.refresh();
+                                }
+                            }
+                            Err(e) => self.set_error(format!("Discard failed: {}", e)),
+                        }
+                    }
+                }
             }
             self.validate_file_selection();
         }

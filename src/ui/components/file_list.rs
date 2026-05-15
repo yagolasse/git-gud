@@ -8,11 +8,12 @@ use std::path::PathBuf;
 pub struct FileList {
     staged_open: bool,
     changes_open: bool,
+    discard_confirm: Option<PathBuf>,
 }
 
 impl FileList {
     pub fn new() -> Self {
-        Self { staged_open: true, changes_open: true }
+        Self { staged_open: true, changes_open: true, discard_confirm: None }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
@@ -35,8 +36,12 @@ impl FileList {
         let mut file_to_stage: Option<PathBuf> = None;
         let mut file_to_unstage: Option<PathBuf> = None;
         let mut file_history_for: Option<PathBuf> = None;
+        let mut file_discard_want_confirm: Option<PathBuf> = None;
+        let mut file_to_discard: Option<PathBuf> = None;
         let mut stage_all = false;
         let mut unstage_all = false;
+
+        let discard_confirm_path = self.discard_confirm.clone();
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -49,7 +54,7 @@ impl FileList {
                     if unstage_all_clicked { unstage_all = true; }
                     if self.staged_open {
                         for file in &staged_files {
-                            let (sel, action, hist) = Self::show_file_row(ui, p, &selected_file, file, true);
+                            let (sel, action, hist, _, _) = Self::show_file_row(ui, p, &selected_file, file, true, false);
                             if sel { file_to_select = Some(file.path.clone()); }
                             if action { file_to_unstage = Some(file.path.clone()); }
                             if hist { file_history_for = Some(file.path.clone()); }
@@ -64,10 +69,14 @@ impl FileList {
                 if stage_all_clicked { stage_all = true; }
                 if self.changes_open {
                     for file in &unstaged_files {
-                        let (sel, action, hist) = Self::show_file_row(ui, p, &selected_file, file, false);
+                        let in_confirm = discard_confirm_path.as_ref() == Some(&file.path);
+                        let (sel, action, hist, want_confirm, confirmed) =
+                            Self::show_file_row(ui, p, &selected_file, file, false, in_confirm);
                         if sel { file_to_select = Some(file.path.clone()); }
                         if action { file_to_stage = Some(file.path.clone()); }
                         if hist { file_history_for = Some(file.path.clone()); }
+                        if want_confirm { file_discard_want_confirm = Some(file.path.clone()); }
+                        if confirmed { file_to_discard = Some(file.path.clone()); }
                     }
                     if unstaged_files.is_empty() {
                         Self::show_empty_hint(ui, p, "No changes", 16.0);
@@ -81,6 +90,12 @@ impl FileList {
         if let Some(path) = file_history_for {
             state.ui_state.file_history_path = Some(path);
             state.ui_state.show_file_history = true;
+        }
+        if let Some(path) = file_to_discard {
+            self.discard_confirm = None;
+            state.ui_state.pending_action = Some(crate::state::PendingAction::DiscardChanges(path));
+        } else if let Some(path) = file_discard_want_confirm {
+            self.discard_confirm = Some(path);
         }
         if stage_all {
             let paths: Vec<_> = state.repository_state().unstaged_files.iter().map(|f| f.path.clone()).collect();
@@ -202,7 +217,8 @@ impl FileList {
         selected_file: &Option<PathBuf>,
         file: &FileChange,
         is_staged: bool,
-    ) -> (bool, bool, bool) {
+        discard_confirm: bool,
+    ) -> (bool, bool, bool, bool, bool) {
         let is_selected = selected_file.as_ref() == Some(&file.path);
         let available_width = ui.available_width();
         let (rect, response) =
@@ -296,13 +312,30 @@ impl FileList {
 
         let action_from_menu = Cell::new(false);
         let history_from_menu = Cell::new(false);
+        let discard_want_confirm = Cell::new(false);
+        let discard_confirmed = Cell::new(false);
         let can_stage = file.status != FileStatus::Conflicted;
+        let can_discard = !is_staged;
         response.context_menu(|ui| {
             if can_stage
                 && ui.button(if is_staged { "Unstage" } else { "Stage" }).clicked() {
                     action_from_menu.set(true);
                     ui.close_menu();
                 }
+            if can_discard {
+                let label = if file.status == FileStatus::Untracked { "Delete file" } else { "Discard Changes" };
+                let confirm_label = if file.status == FileStatus::Untracked { "Confirm delete?" } else { "Confirm discard?" };
+                if discard_confirm {
+                    if ui.add(egui::Button::new(confirm_label)
+                        .fill(egui::Color32::from_rgb(160, 30, 30))).clicked() {
+                        discard_confirmed.set(true);
+                        ui.close_menu();
+                    }
+                } else if ui.button(label).clicked() {
+                    // Don't close menu — show confirm button next frame
+                    discard_want_confirm.set(true);
+                }
+            }
             if ui.button("Copy path").clicked() {
                 ui.output_mut(|o| o.copied_text = file.path.to_string_lossy().to_string());
                 ui.close_menu();
@@ -314,7 +347,14 @@ impl FileList {
         });
 
         let action = (btn.clicked() || action_from_menu.get()) && can_stage;
-        (response.clicked() && !btn.clicked(), action, history_from_menu.get())
+        // (row selected, stage/unstage, show history, enter discard confirm, confirmed discard)
+        (
+            response.clicked() && !btn.clicked(),
+            action,
+            history_from_menu.get(),
+            discard_want_confirm.get(),
+            discard_confirmed.get(),
+        )
     }
 
     fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {

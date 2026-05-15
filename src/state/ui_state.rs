@@ -15,6 +15,7 @@ pub enum PendingAction {
     PushTag(String),
     ResolveOurs(std::path::PathBuf),
     ResolveTheirs(std::path::PathBuf),
+    DiscardChanges(std::path::PathBuf),
 }
 
 /// UI-specific state
