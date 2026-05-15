@@ -72,6 +72,10 @@ pub struct UIState {
     pub show_create_worktree_dialog: bool,
     pub new_worktree_path: String,
     pub new_worktree_branch: String,
+
+    /// File history panel
+    pub show_file_history: bool,
+    pub file_history_path: Option<PathBuf>,
 }
 
 impl UIState {
@@ -104,6 +108,8 @@ impl UIState {
             show_create_worktree_dialog: false,
             new_worktree_path: String::new(),
             new_worktree_branch: String::new(),
+            show_file_history: false,
+            file_history_path: None,
         }
     }
 

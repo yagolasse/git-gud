@@ -751,6 +751,69 @@ impl GitService {
         Ok(commits)
     }
 
+    /// Get commits that touched a specific file (`git log -- <path>`).
+    pub fn get_file_history(repo: &Repository, path: &Path, limit: usize) -> Result<Vec<models::Commit>> {
+        let mut walk = repo.revwalk()?;
+        walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+        if repo.head().is_ok() {
+            walk.push_head()?;
+        } else {
+            return Ok(Vec::new());
+        }
+
+        let repo_path = repo.workdir().unwrap_or_else(|| Path::new("."));
+        let relative = if path.is_absolute() { path.strip_prefix(repo_path).unwrap_or(path) } else { path };
+
+        let mut results = Vec::new();
+        let walk_limit = (limit * 20).max(2000);
+        for oid_result in walk.take(walk_limit) {
+            if results.len() >= limit { break; }
+            let oid = match oid_result { Ok(o) => o, Err(_) => continue };
+            let commit = repo.find_commit(oid)?;
+            if Self::commit_touches_path(repo, &commit, relative) {
+                results.push(Self::commit_to_model(&commit));
+            }
+        }
+        Ok(results)
+    }
+
+    fn commit_touches_path(repo: &Repository, commit: &git2::Commit<'_>, path: &Path) -> bool {
+        let Ok(tree) = commit.tree() else { return false; };
+        let mut opts = DiffOptions::new();
+        opts.pathspec(path);
+        let parent_commit = commit.parents().next();
+        let parent_tree = parent_commit.as_ref().and_then(|p| p.tree().ok());
+        repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
+            .is_ok_and(|d| d.deltas().len() > 0)
+    }
+
+    /// Get the diff of a specific file at a specific commit.
+    pub fn get_file_diff_at_commit(repo: &Repository, path: &Path, commit_id: &str) -> Result<String> {
+        let oid = git2::Oid::from_str(commit_id)?;
+        let commit = repo.find_commit(oid)?;
+        let commit_tree = commit.tree()?;
+
+        let repo_path = repo.workdir().unwrap_or_else(|| Path::new("."));
+        let relative = if path.is_absolute() { path.strip_prefix(repo_path).unwrap_or(path) } else { path };
+
+        let mut opts = DiffOptions::new();
+        opts.pathspec(relative);
+        let parent_commit = commit.parents().next();
+        let parent_tree = parent_commit.as_ref().and_then(|p| p.tree().ok());
+        let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), Some(&mut opts))?;
+
+        let mut diff_text = String::new();
+        diff.print(git2::DiffFormat::Patch, |_, _, line| {
+            let content = std::str::from_utf8(line.content()).unwrap_or("");
+            match line.origin() {
+                '+' | '-' | ' ' => diff_text.push_str(&format!("{}{}", line.origin(), content)),
+                _ => diff_text.push_str(content),
+            }
+            true
+        })?;
+        Ok(diff_text)
+    }
+
     /// Convert git2::Commit to models::Commit
     fn commit_to_model(commit: &Commit) -> models::Commit {
         models::Commit {

@@ -34,6 +34,7 @@ impl FileList {
         let mut file_to_select: Option<PathBuf> = None;
         let mut file_to_stage: Option<PathBuf> = None;
         let mut file_to_unstage: Option<PathBuf> = None;
+        let mut file_history_for: Option<PathBuf> = None;
         let mut stage_all = false;
         let mut unstage_all = false;
 
@@ -48,9 +49,10 @@ impl FileList {
                     if unstage_all_clicked { unstage_all = true; }
                     if self.staged_open {
                         for file in &staged_files {
-                            let (sel, action) = Self::show_file_row(ui, p, &selected_file, file, true);
+                            let (sel, action, hist) = Self::show_file_row(ui, p, &selected_file, file, true);
                             if sel { file_to_select = Some(file.path.clone()); }
                             if action { file_to_unstage = Some(file.path.clone()); }
+                            if hist { file_history_for = Some(file.path.clone()); }
                         }
                     }
                 }
@@ -62,9 +64,10 @@ impl FileList {
                 if stage_all_clicked { stage_all = true; }
                 if self.changes_open {
                     for file in &unstaged_files {
-                        let (sel, action) = Self::show_file_row(ui, p, &selected_file, file, false);
+                        let (sel, action, hist) = Self::show_file_row(ui, p, &selected_file, file, false);
                         if sel { file_to_select = Some(file.path.clone()); }
                         if action { file_to_stage = Some(file.path.clone()); }
+                        if hist { file_history_for = Some(file.path.clone()); }
                     }
                     if unstaged_files.is_empty() {
                         Self::show_empty_hint(ui, p, "No changes", 16.0);
@@ -74,6 +77,10 @@ impl FileList {
 
         if let Some(path) = file_to_select {
             state.ui_state.select_file(path);
+        }
+        if let Some(path) = file_history_for {
+            state.ui_state.file_history_path = Some(path);
+            state.ui_state.show_file_history = true;
         }
         if stage_all {
             let paths: Vec<_> = state.repository_state().unstaged_files.iter().map(|f| f.path.clone()).collect();
@@ -195,7 +202,7 @@ impl FileList {
         selected_file: &Option<PathBuf>,
         file: &FileChange,
         is_staged: bool,
-    ) -> (bool, bool) {
+    ) -> (bool, bool, bool) {
         let is_selected = selected_file.as_ref() == Some(&file.path);
         let available_width = ui.available_width();
         let (rect, response) =
@@ -288,6 +295,7 @@ impl FileList {
         }
 
         let action_from_menu = Cell::new(false);
+        let history_from_menu = Cell::new(false);
         let can_stage = file.status != FileStatus::Conflicted;
         response.context_menu(|ui| {
             if can_stage
@@ -299,10 +307,14 @@ impl FileList {
                 ui.output_mut(|o| o.copied_text = file.path.to_string_lossy().to_string());
                 ui.close_menu();
             }
+            if ui.button("File History").clicked() {
+                history_from_menu.set(true);
+                ui.close_menu();
+            }
         });
 
         let action = (btn.clicked() || action_from_menu.get()) && can_stage;
-        (response.clicked() && !btn.clicked(), action)
+        (response.clicked() && !btn.clicked(), action, history_from_menu.get())
     }
 
     fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {

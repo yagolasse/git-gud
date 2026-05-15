@@ -26,6 +26,7 @@ pub struct MainWindow {
     active_tab: ActiveTab,
     toolbar: crate::ui::Toolbar,
     passphrase_dialog: crate::ui::PassphraseDialog,
+    file_history: crate::ui::FileHistoryPanel,
     dark_mode: bool,
     prefs: AppPrefs,
 }
@@ -67,6 +68,7 @@ impl MainWindow {
             active_tab: ActiveTab::Changes,
             toolbar: crate::ui::Toolbar::new(),
             passphrase_dialog: crate::ui::PassphraseDialog::new(),
+            file_history: crate::ui::FileHistoryPanel::new(),
             dark_mode,
             prefs,
         };
@@ -110,6 +112,11 @@ impl MainWindow {
         self.handle_global_shortcuts(ctx);
 
         self.passphrase_dialog.poll_and_show(ctx, &mut self.state.lock().ui_state);
+
+        {
+            let mut state = self.state.lock();
+            self.file_history.show(ctx, &mut state);
+        }
 
         // Sync dark mode and set egui visuals
         self.dark_mode = self.state.lock().dark_mode;
