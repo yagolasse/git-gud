@@ -34,8 +34,8 @@ src/
 │   ├── mod.rs
 │   ├── askpass.rs             # TCP-loopback IPC bridge for GIT_ASKPASS
 │   ├── git_command.rs         # Git binary abstraction (config, env, error classification)
-│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, amend, checkout, cherry-pick, merge, fetch, worktrees, conflict detection)
-│   ├── diff_parser.rs         # Parse unified diff text → structured types
+│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, amend, checkout, cherry-pick, merge, fetch, worktrees, file history, conflict detection)
+│   ├── diff_parser.rs         # Parse unified diff text → structured types; word-level LCS diff computation
 │   ├── file_watcher_service.rs# notify-based auto-refresh
 │   ├── log_service.rs         # Logging helpers
 │   ├── repository_service.rs  # Repository discovery helpers (partially stubbed)
@@ -59,7 +59,8 @@ src/
         ├── enhanced_diff_viewer.rs # Unified + split diff, dark content area
         ├── error_dialog.rs    # Modal error dialog
         ├── file_dialog.rs     # rfd native file dialog wrapper
-        ├── file_list.rs       # Staged/Changes sections with stage/unstage actions
+        ├── file_history.rs    # Floating file-history window (git log -- <file>) with inline diff
+        ├── file_list.rs       # Staged/Changes sections with stage/unstage actions; right-click → File History
         ├── passphrase_dialog.rs # Modal passphrase input for SSH key auth
         ├── recent_repos.rs    # Persisted recent repository list
         ├── toolbar.rs         # Repo + branch pills, fetch/pull/push, network indicator
@@ -193,9 +194,6 @@ Global shortcuts are handled in `MainWindow::handle_global_shortcuts()` (called 
 
 | Feature | Location | Notes |
 |---------|----------|-------|
-| Merge conflict resolver | `enhanced_diff_viewer.rs` | Backend wired (`resolve_conflict_ours/theirs`, `PendingAction::ResolveOurs/Theirs`); missing: conflict-marker line tagging, Accept Ours/Theirs buttons in diff UI, commit gate |
-| Word-level diff | `enhanced_diff_viewer.rs`, `diff_parser.rs` | `DiffDisplayMode::WordLevel` toggle + `word_changes` field exist; no word-diff computation; falls through to unified |
-| File history (`git log -- <file>`) | `git_service.rs` | Not started; needs RevWalk with pathspec filter + UI panel |
 | Interactive rebase | — | Not started; squash/fixup/reorder commits |
 | Remote management | `toolbar.rs` / `main_window.rs` | No add/edit/remove remote UI or backend |
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
