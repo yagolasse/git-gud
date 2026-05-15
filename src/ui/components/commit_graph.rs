@@ -158,6 +158,9 @@ pub struct CommitGraph {
     selected: Option<usize>,
     /// Commit list snapshot used to build `rows` (detect staleness by length)
     built_for_len: usize,
+    create_branch_commit: Option<String>,
+    create_branch_name: String,
+    create_branch_checkout: bool,
 }
 
 impl CommitGraph {
@@ -166,6 +169,9 @@ impl CommitGraph {
             rows: Vec::new(),
             selected: None,
             built_for_len: usize::MAX,
+            create_branch_commit: None,
+            create_branch_name: String::new(),
+            create_branch_checkout: false,
         }
     }
 
@@ -234,6 +240,7 @@ impl CommitGraph {
 
         let mut cherry_pick_id: Option<String> = None;
         let mut cherry_pick_no_commit_id: Option<String> = None;
+        let mut revert_id: Option<String> = None;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -269,6 +276,14 @@ impl CommitGraph {
                         }
                         if ui.button("Cherry-pick (edit message)").clicked() {
                             cherry_pick_no_commit_id = Some(commit_id.clone());
+                            ui.close_menu();
+                        }
+                        if ui.button("Revert commit").clicked() {
+                            revert_id = Some(commit_id.clone());
+                            ui.close_menu();
+                        }
+                        if ui.button("Create branch here...").clicked() {
+                            self.create_branch_commit = Some(commit_id.clone());
                             ui.close_menu();
                         }
                         if ui.button("Copy hash").clicked() {
@@ -436,6 +451,70 @@ impl CommitGraph {
                     }
                 }
             }
+
+        if let Some(id) = revert_id
+            && let Some(commit) = commits.iter().find(|c| c.id == id) {
+                let original_msg = commit.message.trim().to_owned();
+                let short = &id[..7.min(id.len())];
+                match state.repository_state_mut().revert_commit(&id) {
+                    Ok(()) => {
+                        let revert_msg = format!(
+                            "Revert \"{}\"\n\nThis reverts commit {}.",
+                            original_msg,
+                            &id[..7.min(id.len())]
+                        );
+                        state.ui_state.set_commit_message(&revert_msg);
+                        state.set_info(format!("Staged revert of {} — edit message if needed and commit", short));
+                    }
+                    Err(e) => state.set_error(format!("Revert failed: {}", e)),
+                }
+            }
+
+        if self.create_branch_commit.is_some() {
+            let ctx = ui.ctx().clone();
+            let mut do_create = false;
+            let mut do_cancel = false;
+            egui::Window::new("Create Branch")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label("Branch name:");
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.create_branch_name)
+                            .desired_width(240.0),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        do_create = true;
+                    }
+                    ui.checkbox(&mut self.create_branch_checkout, "Checkout after create");
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let name_ok = !self.create_branch_name.trim().is_empty();
+                        if ui.add_enabled(name_ok, egui::Button::new("Create")).clicked() {
+                            do_create = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            do_cancel = true;
+                        }
+                    });
+                });
+            if do_create {
+                if let Some(commit_id) = self.create_branch_commit.take() {
+                    let name = self.create_branch_name.trim().to_string();
+                    let checkout = self.create_branch_checkout;
+                    self.create_branch_name.clear();
+                    match state.repository_state_mut().create_branch_at(&name, &commit_id, checkout) {
+                        Ok(()) => state.set_info(format!("Branch '{}' created", name)),
+                        Err(e) => state.set_error(format!("Failed to create branch: {}", e)),
+                    }
+                }
+            }
+            if do_cancel {
+                self.create_branch_commit = None;
+                self.create_branch_name.clear();
+            }
+        }
 
         cherry_pick_id
     }

@@ -325,6 +325,18 @@ impl RepositoryState {
         Ok(())
     }
 
+    pub fn revert_commit(&mut self, commit_id: &str) -> anyhow::Result<()> {
+        services::GitService::revert_commit(&self.repository, commit_id)?;
+        self.refresh()?;
+        Ok(())
+    }
+
+    pub fn create_branch_at(&mut self, name: &str, commit_id: &str, checkout: bool) -> anyhow::Result<()> {
+        services::GitService::create_branch_at(&self.repository, name, commit_id, checkout)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     pub fn add_worktree(&mut self, path: &std::path::Path, branch: &str) -> anyhow::Result<()> {
         services::GitService::add_worktree(&self.repository, path, branch)?;
         self.refresh()?;

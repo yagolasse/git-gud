@@ -574,6 +574,31 @@ impl GitService {
         Ok(())
     }
 
+    pub fn revert_commit(repo: &Repository, commit_id: &str) -> Result<()> {
+        let oid = git2::Oid::from_str(commit_id)
+            .map_err(|_| anyhow!("Invalid OID: {}", commit_id))?;
+        let commit = repo.find_commit(oid)?;
+        repo.revert(&commit, None)
+            .map_err(|e| anyhow!("Revert failed: {}", e))?;
+        log::info!("Reverted commit {}", &commit_id[..7.min(commit_id.len())]);
+        Ok(())
+    }
+
+    pub fn create_branch_at(repo: &Repository, name: &str, commit_id: &str, checkout: bool) -> Result<()> {
+        let oid = git2::Oid::from_str(commit_id)
+            .map_err(|_| anyhow!("Invalid OID: {}", commit_id))?;
+        let commit = repo.find_commit(oid)?;
+        repo.branch(name, &commit, false)
+            .map_err(|e| anyhow!("Failed to create branch '{}': {}", name, e))?;
+        if checkout {
+            let refname = format!("refs/heads/{}", name);
+            repo.set_head(&refname)?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
+        }
+        log::info!("Branch '{}' created at {}", name, &commit_id[..7.min(commit_id.len())]);
+        Ok(())
+    }
+
     /// Save current working tree changes to the stash
     pub fn stash_save(repo: &mut Repository, message: &str) -> Result<()> {
         let sig = repo.signature()?;
