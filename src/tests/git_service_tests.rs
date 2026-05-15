@@ -781,3 +781,131 @@ fn test_push_tag() -> Result<()> {
 
     Ok(())
 }
+
+/// Discard changes to a tracked modified file restores the committed content.
+#[test]
+fn test_discard_changes_tracked_file() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("hello.txt");
+    fs::write(&file, "original\n")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "initial")?;
+
+    // Modify the file in the working directory
+    fs::write(&file, "modified\n")?;
+
+    let (unstaged, _) = GitService::get_status(&repo)?;
+    assert_eq!(unstaged.len(), 1);
+    assert!(matches!(unstaged[0].status, crate::models::FileStatus::Modified));
+
+    // Discard
+    GitService::discard_changes(&repo, &unstaged[0].path)?;
+
+    // File content should be back to original (normalize CRLF for Windows)
+    let content = fs::read_to_string(&file)?;
+    assert_eq!(content.replace("\r\n", "\n"), "original\n");
+
+    // Working tree should be clean
+    let (unstaged, staged) = GitService::get_status(&repo)?;
+    assert!(unstaged.is_empty(), "Expected clean working tree after discard");
+    assert!(staged.is_empty());
+
+    Ok(())
+}
+
+/// Discard changes for an untracked file deletes it from disk.
+#[test]
+fn test_discard_changes_untracked_file() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    // Commit something so HEAD exists
+    let seed = temp_dir.path().join("seed.txt");
+    fs::write(&seed, "seed")?;
+    GitService::stage_files(&repo, &[seed])?;
+    GitService::create_commit(&repo, "seed")?;
+
+    // Create an untracked file
+    let untracked = temp_dir.path().join("untracked.txt");
+    fs::write(&untracked, "ephemeral\n")?;
+    assert!(untracked.exists());
+
+    let (unstaged, _) = GitService::get_status(&repo)?;
+    let untracked_entry = unstaged.iter().find(|f| f.path.file_name() == untracked.file_name());
+    assert!(untracked_entry.is_some(), "untracked file should appear in status");
+
+    // Discard (delete)
+    GitService::discard_changes(&repo, &untracked_entry.unwrap().path)?;
+
+    assert!(!untracked.exists(), "untracked file should have been deleted");
+
+    let (unstaged, _) = GitService::get_status(&repo)?;
+    assert!(
+        unstaged.iter().all(|f| f.path.file_name() != untracked.file_name()),
+        "deleted file should no longer appear in status"
+    );
+
+    Ok(())
+}
+
+/// Discard on a file with no working-directory changes (clean tracked file) is a no-op.
+#[test]
+fn test_discard_changes_clean_file() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("clean.txt");
+    fs::write(&file, "committed\n")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "commit clean")?;
+
+    // No modification — discard should succeed and leave content unchanged
+    GitService::discard_changes(&repo, std::path::Path::new("clean.txt"))?;
+
+    let content = fs::read_to_string(&file)?;
+    assert_eq!(content, "committed\n");
+
+    Ok(())
+}
+
+/// Discard a file that was modified and then also staged leaves the working copy
+/// at the index version (not the HEAD version).
+#[test]
+fn test_discard_changes_staged_modified_file() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let repo = GitService::init_repository(temp_dir.path())?;
+    setup_identity(&repo)?;
+
+    let file = temp_dir.path().join("staged.txt");
+    fs::write(&file, "v1\n")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+    GitService::create_commit(&repo, "v1")?;
+
+    // Stage a modification (v2 is now in the index)
+    fs::write(&file, "v2\n")?;
+    GitService::stage_files(&repo, &[file.clone()])?;
+
+    // Then modify again in working directory (v3 is only in workdir)
+    fs::write(&file, "v3\n")?;
+
+    let (unstaged, staged) = GitService::get_status(&repo)?;
+    assert!(!staged.is_empty(), "v2 should be staged");
+    assert!(!unstaged.is_empty(), "v3 workdir change should be unstaged");
+
+    // Discard working-directory change — should restore to the index version (v2)
+    GitService::discard_changes(&repo, &unstaged[0].path)?;
+
+    let content = fs::read_to_string(&file)?;
+    assert_eq!(content.replace("\r\n", "\n"), "v2\n", "workdir should match index (v2) after discard");
+
+    // Staged change (v2) should still be there
+    let (_, staged) = GitService::get_status(&repo)?;
+    assert!(!staged.is_empty(), "staged change should still be present");
+
+    Ok(())
+}
