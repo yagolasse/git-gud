@@ -34,7 +34,7 @@ src/
 │   ├── mod.rs
 │   ├── askpass.rs             # TCP-loopback IPC bridge for GIT_ASKPASS
 │   ├── git_command.rs         # Git binary abstraction (config, env, error classification)
-│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, checkout, cherry-pick, merge, fetch, conflict detection)
+│   ├── git_service.rs         # All git2 operations (status, stage, unstage, commit, amend, checkout, cherry-pick, merge, fetch, worktrees, conflict detection)
 │   ├── diff_parser.rs         # Parse unified diff text → structured types
 │   ├── file_watcher_service.rs# notify-based auto-refresh
 │   ├── log_service.rs         # Logging helpers
@@ -193,14 +193,14 @@ Global shortcuts are handled in `MainWindow::handle_global_shortcuts()` (called 
 
 | Feature | Location | Notes |
 |---------|----------|-------|
-| Amend commit | `commit_panel.rs` | Checkbox exists, not implemented |
-| Word-level diff | `enhanced_diff_viewer.rs` | `DiffDisplayMode::WordLevel` falls through to unified |
+| Merge conflict resolver | `enhanced_diff_viewer.rs` | Backend wired (`resolve_conflict_ours/theirs`, `PendingAction::ResolveOurs/Theirs`); missing: conflict-marker line tagging, Accept Ours/Theirs buttons in diff UI, commit gate |
+| Word-level diff | `enhanced_diff_viewer.rs`, `diff_parser.rs` | `DiffDisplayMode::WordLevel` toggle + `word_changes` field exist; no word-diff computation; falls through to unified |
+| File history (`git log -- <file>`) | `git_service.rs` | Not started; needs RevWalk with pathspec filter + UI panel |
+| Interactive rebase | — | Not started; squash/fixup/reorder commits |
+| Remote management | `toolbar.rs` / `main_window.rs` | No add/edit/remove remote UI or backend |
 | Search within diff | `enhanced_diff_viewer.rs` | Not started |
 | Show in File Explorer | File menu | Not started |
 | `repository_service.rs` stubs | `repository_service.rs` | `discover_repositories`, `get_repository_info` return empty |
-| Add remote | `toolbar.rs` | No UI yet to add/configure remotes |
-| Merge conflict resolver | `enhanced_diff_viewer.rs` | Plan written; shows conflict markers, Accept Ours/Theirs buttons |
-| Worktree support | — | List, create, remove git worktrees |
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
