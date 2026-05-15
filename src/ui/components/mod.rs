@@ -25,7 +25,7 @@ pub use enhanced_diff_viewer::EnhancedDiffViewer;
 pub use error_dialog::ErrorDialog;
 pub use file_dialog::FileDialog;
 pub use file_history::FileHistoryPanel;
-pub use file_list::FileList;
+pub use file_list::{open_in_explorer, FileList};
 pub use passphrase_dialog::PassphraseDialog;
 pub use recent_repos::RecentRepos;
 pub use toolbar::{Toolbar, ToolbarAction};

@@ -6,6 +6,15 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub fn open_in_explorer(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+}
+
 /// Which multi-selection action was triggered from the context menu
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MultiAction {
@@ -104,7 +113,7 @@ impl FileList {
                             for file in &staged_files {
                                 let in_selection = state.ui_state.is_selected(&file.path);
                                 let multi_sel = if in_selection { sel_count } else { 0 };
-                                let (sel, action, hist, _, _, ctrl_click, multi) =
+                                let (sel, action, hist, _, _, ctrl_click, multi, _file_actions) =
                                     Self::show_file_row(ui, p, &selected_file, file, true, false, multi_sel, 0.0);
                                 if ctrl_click {
                                     state.ui_state.toggle_selection(file.path.clone());
@@ -145,7 +154,7 @@ impl FileList {
                             let in_confirm = discard_confirm_path.as_ref() == Some(&file.path);
                             let in_selection = state.ui_state.is_selected(&file.path);
                             let multi_sel = if in_selection { sel_count } else { 0 };
-                            let (sel, action, hist, want_confirm, confirmed, ctrl_click, multi) =
+                            let (sel, action, hist, want_confirm, confirmed, ctrl_click, multi, (ignore, explore)) =
                                 Self::show_file_row(ui, p, &selected_file, file, false, in_confirm, multi_sel, 0.0);
                             if ctrl_click {
                                 state.ui_state.toggle_selection(file.path.clone());
@@ -162,6 +171,41 @@ impl FileList {
                             }
                             if multi == MultiAction::Discard {
                                 multi_discard = Some(state.ui_state.selection.iter().cloned().collect());
+                            }
+                            if ignore {
+                                if let Some(rs) = state.repository_state.as_ref() {
+                                    if let Some(workdir) = rs.repository.workdir() {
+                                        let gitignore_path = workdir.join(".gitignore");
+                                        let entry = file.path.to_string_lossy().replace('\\', "/");
+                                        let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+                                        if existing.lines().any(|l| l.trim() == entry.as_str()) {
+                                            state.set_info(format!("'{}' is already in .gitignore", entry));
+                                        } else {
+                                            let to_append = if existing.ends_with('\n') || existing.is_empty() {
+                                                format!("{}\n", entry)
+                                            } else {
+                                                format!("\n{}\n", entry)
+                                            };
+                                            match std::fs::OpenOptions::new().append(true).create(true).open(&gitignore_path)
+                                                .and_then(|mut f| { use std::io::Write; f.write_all(to_append.as_bytes()) })
+                                            {
+                                                Ok(()) => state.set_info(format!("Added '{}' to .gitignore", entry)),
+                                                Err(e) => state.set_error(format!("Failed to update .gitignore: {}", e)),
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if explore {
+                                if let Some(rs) = state.repository_state.as_ref() {
+                                    if let Some(workdir) = rs.repository.workdir() {
+                                        let file_dir = workdir.join(&file.path)
+                                            .parent()
+                                            .unwrap_or(workdir)
+                                            .to_path_buf();
+                                        open_in_explorer(&file_dir);
+                                    }
+                                }
                             }
                         }
                     }
@@ -334,7 +378,7 @@ impl FileList {
         action_clicked
     }
 
-    /// Returns: (row_selected, stage_or_unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action)
+    /// Returns: (row_selected, stage_or_unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action, (add_to_gitignore, show_in_explorer))
     ///
     /// `multi_sel_count`: 0 = file not in multi-selection, >1 = in multi-selection with this many files.
     /// `indent`: extra left-margin pixels for tree mode (suppresses parent-path hint when > 0).
@@ -348,7 +392,7 @@ impl FileList {
         discard_confirm: bool,
         multi_sel_count: usize,
         indent: f32,
-    ) -> (bool, bool, bool, bool, bool, bool, MultiAction) {
+    ) -> (bool, bool, bool, bool, bool, bool, MultiAction, (bool, bool)) {
         let is_selected = selected_file.as_ref() == Some(&file.path);
         let available_width = ui.available_width();
         let (rect, response) =
@@ -451,6 +495,8 @@ impl FileList {
         let discard_want_confirm = Cell::new(false);
         let discard_confirmed = Cell::new(false);
         let multi_action: Cell<MultiAction> = Cell::new(MultiAction::None);
+        let add_to_gitignore = Cell::new(false);
+        let show_in_explorer = Cell::new(false);
         let can_stage = file.status != FileStatus::Conflicted;
         let can_discard = !is_staged;
         response.context_menu(|ui| {
@@ -481,6 +527,16 @@ impl FileList {
                 history_from_menu.set(true);
                 ui.close_menu();
             }
+            if !is_staged {
+                if ui.button("Add to .gitignore").clicked() {
+                    add_to_gitignore.set(true);
+                    ui.close_menu();
+                }
+                if ui.button("Show in Explorer").clicked() {
+                    show_in_explorer.set(true);
+                    ui.close_menu();
+                }
+            }
             // Multi-selection actions — only when this file is part of a multi-selection (>1)
             if multi_sel_count > 1 {
                 ui.separator();
@@ -503,7 +559,6 @@ impl FileList {
         });
 
         let action = (btn.clicked() || action_from_menu.get()) && can_stage;
-        // (row_selected, stage/unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action)
         (
             response.clicked() && !btn.clicked() && !ctrl_held,
             action,
@@ -512,6 +567,7 @@ impl FileList {
             discard_confirmed.get(),
             ctrl_click,
             multi_action.get(),
+            (add_to_gitignore.get(), show_in_explorer.get()),
         )
     }
 
@@ -721,7 +777,7 @@ fn show_tree_node(
     } else if let Some(file) = &node.file {
         let in_confirm = ctx.discard_confirm_path.as_ref() == Some(&file.path);
         let indent = depth as f32 * 12.0;
-        let (sel, action, hist, want_confirm, confirmed, _ctrl, _multi) =
+        let (sel, action, hist, want_confirm, confirmed, _ctrl, _multi, _file_actions) =
             FileList::show_file_row(ui, p, selected_file, file, ctx.is_staged, in_confirm, 0, indent);
         if sel { result.selected = Some(file.path.clone()); }
         if action { result.stage_action = Some(file.path.clone()); }
