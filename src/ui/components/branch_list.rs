@@ -81,6 +81,7 @@ impl BranchList {
         let (ahead, behind) = state.repository_state.as_ref()
             .map(|rs| (rs.ahead, rs.behind))
             .unwrap_or((0, 0));
+        let repo_root = state.repository_state.as_ref().map(|r| r.path.clone());
         let selected_branch = state.ui_state.selected_branch.clone();
         let mut branch_to_select: Option<String> = None;
         let mut branch_to_checkout: Option<String> = None;
@@ -89,9 +90,9 @@ impl BranchList {
         let mut branch_to_merge: Option<String> = None;
         let mut stash_to_pop: Option<usize> = None;
         let mut stash_to_drop: Option<usize> = None;
+        let mut stash_to_apply: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
         let mut worktree_to_remove: Option<std::path::PathBuf> = None;
-        let mut show_add_worktree = false;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -169,7 +170,8 @@ impl BranchList {
                         Self::show_empty_hint(ui, p, "No stashes", 22.0);
                     } else {
                         for stash in &stashes {
-                            if let Some((pop, drop)) = Self::show_stash_row(ui, p, stash) {
+                            if let Some((apply, pop, drop)) = Self::show_stash_row(ui, p, stash) {
+                                if apply { stash_to_apply = Some(stash.index); }
                                 if pop { stash_to_pop = Some(stash.index); }
                                 if drop { stash_to_drop = Some(stash.index); }
                             }
@@ -177,13 +179,15 @@ impl BranchList {
                     }
                 }
 
-                let wt_add = Self::show_section_header(ui, p, "WORKTREES", &mut self.worktrees_open, true);
-                if wt_add { show_add_worktree = true; }
+                Self::show_section_header(ui, p, "WORKTREES", &mut self.worktrees_open, false);
                 if self.worktrees_open {
-                    if worktrees.is_empty() {
+                    let non_root_worktrees: Vec<_> = worktrees.iter()
+                        .filter(|wt| Some(&wt.path) != repo_root.as_ref())
+                        .collect();
+                    if non_root_worktrees.is_empty() {
                         Self::show_empty_hint(ui, p, "No worktrees", 22.0);
                     } else {
-                        for wt in &worktrees {
+                        for wt in non_root_worktrees {
                             if let Some(path) = Self::show_worktree_row(ui, p, wt) {
                                 worktree_to_remove = Some(path);
                             }
@@ -230,6 +234,12 @@ impl BranchList {
                 Err(e) => state.set_error(format!("Merge failed: {}", e)),
             }
         }
+        if let Some(index) = stash_to_apply {
+            match state.repository_state_mut().stash_apply(index) {
+                Ok(()) => state.set_info("Stash applied (stash kept)".to_string()),
+                Err(e) => state.set_error(format!("Failed to apply stash: {}", e)),
+            }
+        }
         if let Some(index) = stash_to_pop {
             match state.repository_state_mut().stash_pop(index) {
                 Ok(()) => state.set_info("Stash applied and removed".to_string()),
@@ -248,10 +258,6 @@ impl BranchList {
                 Err(e) => state.set_error(format!("Failed to remove worktree: {}", e)),
             }
         }
-        if show_add_worktree {
-            state.ui_state.show_create_worktree_dialog = true;
-        }
-
         // Worktree create dialog
         if state.ui_state.show_create_worktree_dialog {
             let ctx = ui.ctx().clone();
@@ -618,7 +624,7 @@ impl BranchList {
             );
 
             let (ahead, behind) = ahead_behind;
-            if branch.is_current && (ahead > 0 || behind > 0) {
+            if ahead > 0 || behind > 0 {
                 let sf = egui::FontId::proportional(10.0);
                 let mut rx = rect.max.x - 6.0;
 
@@ -626,7 +632,7 @@ impl BranchList {
                 let bw = ui.fonts(|f| f.layout_no_wrap(behind_str.clone(), sf.clone(), egui::Color32::WHITE).size().x);
                 let dn_color = if behind > 0 { p.accent_success } else { p.text_tertiary };
                 ui.painter().text(egui::pos2(rx - bw, y), egui::Align2::LEFT_CENTER, &behind_str, sf.clone(), p.text_tertiary);
-                rx -= bw + 2.0;
+                rx -= bw + 5.0;
                 ui.painter().add(egui::Shape::convex_polygon(
                     vec![
                         egui::pos2(rx - 3.0, y - 2.0),
@@ -641,7 +647,7 @@ impl BranchList {
                 let aw = ui.fonts(|f| f.layout_no_wrap(ahead_str.clone(), sf.clone(), egui::Color32::WHITE).size().x);
                 let up_color = if ahead > 0 { p.accent_success } else { p.text_tertiary };
                 ui.painter().text(egui::pos2(rx - aw, y), egui::Align2::LEFT_CENTER, &ahead_str, sf.clone(), p.text_tertiary);
-                rx -= aw + 2.0;
+                rx -= aw + 5.0;
                 ui.painter().add(egui::Shape::convex_polygon(
                     vec![
                         egui::pos2(rx - 3.0, y + 2.0),
@@ -690,12 +696,12 @@ impl BranchList {
         (response.clicked(), checkout, delete_from_menu.get(), rename_from_menu.get(), merge_from_menu.get())
     }
 
-    /// Returns `Some((pop_clicked, drop_clicked))` for the given stash row
+    /// Returns `Some((apply_clicked, pop_clicked, drop_clicked))` for the given stash row
     fn show_stash_row(
         ui: &mut egui::Ui,
         p: &Palette,
         stash: &crate::models::StashEntry,
-    ) -> Option<(bool, bool)> {
+    ) -> Option<(bool, bool, bool)> {
         let available_width = ui.available_width();
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::hover());
@@ -717,9 +723,14 @@ impl BranchList {
             p.text_secondary,
         );
 
+        let apply_clicked = Cell::new(false);
         let pop_clicked = Cell::new(false);
         let drop_clicked = Cell::new(false);
         response.context_menu(|ui| {
+            if ui.button("Apply").clicked() {
+                apply_clicked.set(true);
+                ui.close_menu();
+            }
             if ui.button("Pop").clicked() {
                 pop_clicked.set(true);
                 ui.close_menu();
@@ -730,7 +741,7 @@ impl BranchList {
             }
         });
 
-        Some((pop_clicked.get(), drop_clicked.get()))
+        Some((apply_clicked.get(), pop_clicked.get(), drop_clicked.get()))
     }
 
     fn show_empty_hint(ui: &mut egui::Ui, p: &Palette, text: &str, indent: f32) {
