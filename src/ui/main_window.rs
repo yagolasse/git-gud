@@ -330,7 +330,10 @@ impl MainWindow {
                     }
                     ui.separator();
                     if ui.add_enabled(has_repo, egui::Button::new("Show in File Explorer")).clicked() {
-                        state.set_info("Show in file explorer not yet implemented".to_string());
+                        if let Some(rs) = state.repository_state.as_ref() {
+                            let repo_path = rs.path.clone();
+                            crate::ui::components::open_in_explorer(&repo_path);
+                        }
                         ui.close_menu();
                     }
                 });
