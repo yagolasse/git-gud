@@ -3,6 +3,7 @@ use crate::state::AppState;
 use crate::ui::colors::Palette;
 use eframe::egui;
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Which multi-selection action was triggered from the context menu
@@ -17,11 +18,19 @@ pub struct FileList {
     staged_open: bool,
     changes_open: bool,
     discard_confirm: Option<PathBuf>,
+    tree_view: bool,
+    dir_open: HashMap<PathBuf, bool>,
 }
 
 impl FileList {
     pub fn new() -> Self {
-        Self { staged_open: true, changes_open: true, discard_confirm: None }
+        Self {
+            staged_open: true,
+            changes_open: true,
+            discard_confirm: None,
+            tree_view: false,
+            dir_open: HashMap::new(),
+        }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, state: &mut AppState) {
@@ -51,6 +60,8 @@ impl FileList {
         let mut multi_stage: Option<Vec<PathBuf>> = None;
         let mut multi_unstage: Option<Vec<PathBuf>> = None;
         let mut multi_discard: Option<Vec<PathBuf>> = None;
+        let mut folder_to_stage: Option<Vec<PathBuf>> = None;
+        let mut folder_to_unstage: Option<Vec<PathBuf>> = None;
 
         let discard_confirm_path = self.discard_confirm.clone();
 
@@ -60,28 +71,52 @@ impl FileList {
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show(ui, |ui| {
+                // View toggle
+                ui.horizontal(|ui| {
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("View:").color(p.text_tertiary).small());
+                    ui.add_space(2.0);
+                    if ui.selectable_label(!self.tree_view, egui::RichText::new("List").small()).clicked() {
+                        self.tree_view = false;
+                    }
+                    if ui.selectable_label(self.tree_view, egui::RichText::new("Tree").small()).clicked() {
+                        self.tree_view = true;
+                    }
+                });
+
                 if !staged_files.is_empty() {
                     let unstage_all_clicked = Self::show_section_header(
                         ui, p, "STAGED CHANGES", staged_files.len(), &mut self.staged_open, Some("Unstage all"),
                     );
                     if unstage_all_clicked { unstage_all = true; }
                     if self.staged_open {
-                        for file in &staged_files {
-                            let in_selection = state.ui_state.is_selected(&file.path);
-                            let multi_sel = if in_selection { sel_count } else { 0 };
-                            let (sel, action, hist, _, _, ctrl_click, multi) =
-                                Self::show_file_row(ui, p, &selected_file, file, true, false, multi_sel);
-                            if ctrl_click {
-                                state.ui_state.toggle_selection(file.path.clone());
-                            } else if sel {
-                                state.ui_state.clear_selection();
-                                file_to_select = Some(file.path.clone());
+                        if self.tree_view {
+                            let tree = build_tree(&staged_files);
+                            let tctx = TreeCtx { is_staged: true, discard_confirm_path: &discard_confirm_path };
+                            for node in &tree {
+                                let r = show_tree_node(ui, p, node, 0, &selected_file, &mut self.dir_open, &tctx);
+                                if let Some(p) = r.selected { file_to_select = Some(p); }
+                                if let Some(p) = r.stage_action { file_to_unstage = Some(p); }
+                                if let Some(p) = r.history { file_history_for = Some(p); }
+                                if let Some(ps) = r.folder_unstage { folder_to_unstage = Some(ps); }
                             }
-                            if action { file_to_unstage = Some(file.path.clone()); }
-                            if hist { file_history_for = Some(file.path.clone()); }
-                            if multi == MultiAction::StageOrUnstage {
-                                // Staged section: multi-action is always unstage
-                                multi_unstage = Some(state.ui_state.selection.iter().cloned().collect());
+                        } else {
+                            for file in &staged_files {
+                                let in_selection = state.ui_state.is_selected(&file.path);
+                                let multi_sel = if in_selection { sel_count } else { 0 };
+                                let (sel, action, hist, _, _, ctrl_click, multi) =
+                                    Self::show_file_row(ui, p, &selected_file, file, true, false, multi_sel, 0.0);
+                                if ctrl_click {
+                                    state.ui_state.toggle_selection(file.path.clone());
+                                } else if sel {
+                                    state.ui_state.clear_selection();
+                                    file_to_select = Some(file.path.clone());
+                                }
+                                if action { file_to_unstage = Some(file.path.clone()); }
+                                if hist { file_history_for = Some(file.path.clone()); }
+                                if multi == MultiAction::StageOrUnstage {
+                                    multi_unstage = Some(state.ui_state.selection.iter().cloned().collect());
+                                }
                             }
                         }
                     }
@@ -93,27 +128,41 @@ impl FileList {
                 );
                 if stage_all_clicked { stage_all = true; }
                 if self.changes_open {
-                    for file in &unstaged_files {
-                        let in_confirm = discard_confirm_path.as_ref() == Some(&file.path);
-                        let in_selection = state.ui_state.is_selected(&file.path);
-                        let multi_sel = if in_selection { sel_count } else { 0 };
-                        let (sel, action, hist, want_confirm, confirmed, ctrl_click, multi) =
-                            Self::show_file_row(ui, p, &selected_file, file, false, in_confirm, multi_sel);
-                        if ctrl_click {
-                            state.ui_state.toggle_selection(file.path.clone());
-                        } else if sel {
-                            state.ui_state.clear_selection();
-                            file_to_select = Some(file.path.clone());
+                    if self.tree_view {
+                        let tree = build_tree(&unstaged_files);
+                        let tctx = TreeCtx { is_staged: false, discard_confirm_path: &discard_confirm_path };
+                        for node in &tree {
+                            let r = show_tree_node(ui, p, node, 0, &selected_file, &mut self.dir_open, &tctx);
+                            if let Some(p) = r.selected { file_to_select = Some(p); }
+                            if let Some(p) = r.stage_action { file_to_stage = Some(p); }
+                            if let Some(p) = r.history { file_history_for = Some(p); }
+                            if let Some(p) = r.want_discard_confirm { file_discard_want_confirm = Some(p); }
+                            if let Some(p) = r.discard_confirmed { file_to_discard = Some(p); }
+                            if let Some(ps) = r.folder_stage { folder_to_stage = Some(ps); }
                         }
-                        if action { file_to_stage = Some(file.path.clone()); }
-                        if hist { file_history_for = Some(file.path.clone()); }
-                        if want_confirm { file_discard_want_confirm = Some(file.path.clone()); }
-                        if confirmed { file_to_discard = Some(file.path.clone()); }
-                        if multi == MultiAction::StageOrUnstage {
-                            multi_stage = Some(state.ui_state.selection.iter().cloned().collect());
-                        }
-                        if multi == MultiAction::Discard {
-                            multi_discard = Some(state.ui_state.selection.iter().cloned().collect());
+                    } else {
+                        for file in &unstaged_files {
+                            let in_confirm = discard_confirm_path.as_ref() == Some(&file.path);
+                            let in_selection = state.ui_state.is_selected(&file.path);
+                            let multi_sel = if in_selection { sel_count } else { 0 };
+                            let (sel, action, hist, want_confirm, confirmed, ctrl_click, multi) =
+                                Self::show_file_row(ui, p, &selected_file, file, false, in_confirm, multi_sel, 0.0);
+                            if ctrl_click {
+                                state.ui_state.toggle_selection(file.path.clone());
+                            } else if sel {
+                                state.ui_state.clear_selection();
+                                file_to_select = Some(file.path.clone());
+                            }
+                            if action { file_to_stage = Some(file.path.clone()); }
+                            if hist { file_history_for = Some(file.path.clone()); }
+                            if want_confirm { file_discard_want_confirm = Some(file.path.clone()); }
+                            if confirmed { file_to_discard = Some(file.path.clone()); }
+                            if multi == MultiAction::StageOrUnstage {
+                                multi_stage = Some(state.ui_state.selection.iter().cloned().collect());
+                            }
+                            if multi == MultiAction::Discard {
+                                multi_discard = Some(state.ui_state.selection.iter().cloned().collect());
+                            }
                         }
                     }
                     if unstaged_files.is_empty() {
@@ -163,6 +212,12 @@ impl FileList {
                 let _ = state.refresh_repository();
             }
             state.ui_state.clear_selection();
+        }
+        if let Some(paths) = folder_to_stage {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::StageAll(paths));
+        }
+        if let Some(paths) = folder_to_unstage {
+            state.ui_state.pending_action = Some(crate::state::PendingAction::UnstageAll(paths));
         }
         if let Some(path) = file_to_stage {
             if let Err(e) = state.repository_state_mut().stage_files(std::slice::from_ref(&path)) {
@@ -282,6 +337,8 @@ impl FileList {
     /// Returns: (row_selected, stage_or_unstage, show_history, want_discard_confirm, discard_confirmed, ctrl_click, multi_action)
     ///
     /// `multi_sel_count`: 0 = file not in multi-selection, >1 = in multi-selection with this many files.
+    /// `indent`: extra left-margin pixels for tree mode (suppresses parent-path hint when > 0).
+    #[allow(clippy::too_many_arguments)]
     fn show_file_row(
         ui: &mut egui::Ui,
         p: &Palette,
@@ -290,6 +347,7 @@ impl FileList {
         is_staged: bool,
         discard_confirm: bool,
         multi_sel_count: usize,
+        indent: f32,
     ) -> (bool, bool, bool, bool, bool, bool, MultiAction) {
         let is_selected = selected_file.as_ref() == Some(&file.path);
         let available_width = ui.available_width();
@@ -321,7 +379,7 @@ impl FileList {
 
             let (badge_letter, badge_color) = status_badge(file, p);
 
-            let dot_x = rect.min.x + 22.0;
+            let dot_x = rect.min.x + 22.0 + indent;
             ui.painter().circle_filled(egui::pos2(dot_x, y), 3.5, extension_color(&file.path, p));
 
             let text_color = if is_selected { p.accent_text } else { p.text_primary };
@@ -341,7 +399,8 @@ impl FileList {
 
             let icon_left = icon_center.x - 9.0;
             let path_x = name_rect.max.x + 5.0;
-            if path_x < icon_left - 4.0
+            if indent == 0.0
+                && path_x < icon_left - 4.0
                 && let Some(parent) = file.path.parent() {
                     let parent_str = parent.to_string_lossy();
                     if !parent_str.is_empty() && parent_str != "." {
@@ -502,6 +561,176 @@ fn extension_color(path: &std::path::Path, p: &Palette) -> egui::Color32 {
         Some("toml") | Some("yaml") | Some("yml") => egui::Color32::from_rgb(207, 134, 76),
         _                        => p.text_tertiary,
     }
+}
+
+// ── Tree view ─────────────────────────────────────────────────────────────────
+
+struct TreeNode {
+    name: String,
+    path: PathBuf,
+    is_dir: bool,
+    children: Vec<TreeNode>,
+    file: Option<FileChange>,
+}
+
+fn build_tree(files: &[FileChange]) -> Vec<TreeNode> {
+    let mut roots: Vec<TreeNode> = Vec::new();
+    for file in files {
+        let components: Vec<_> = file.path.components().collect();
+        if components.len() <= 1 {
+            roots.push(TreeNode {
+                name: file.path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file.path.to_string_lossy().to_string()),
+                path: file.path.clone(),
+                is_dir: false,
+                children: vec![],
+                file: Some(file.clone()),
+            });
+        } else {
+            let dir_name = components[0].as_os_str().to_string_lossy().to_string();
+            let dir_path = PathBuf::from(&dir_name);
+            let rest_path: PathBuf = components[1..].iter().collect();
+            if let Some(dir) = roots.iter_mut().find(|n| n.is_dir && n.name == dir_name) {
+                insert_into_dir(dir, &rest_path, file);
+            } else {
+                let mut new_dir = TreeNode { name: dir_name, path: dir_path, is_dir: true, children: vec![], file: None };
+                insert_into_dir(&mut new_dir, &rest_path, file);
+                roots.push(new_dir);
+            }
+        }
+    }
+    roots
+}
+
+fn insert_into_dir(dir: &mut TreeNode, rel_path: &std::path::Path, file: &FileChange) {
+    let components: Vec<_> = rel_path.components().collect();
+    if components.len() <= 1 {
+        dir.children.push(TreeNode {
+            name: rel_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel_path.to_string_lossy().to_string()),
+            path: file.path.clone(),
+            is_dir: false,
+            children: vec![],
+            file: Some(file.clone()),
+        });
+    } else {
+        let sub_name = components[0].as_os_str().to_string_lossy().to_string();
+        let sub_path = dir.path.join(&sub_name);
+        let rest: PathBuf = components[1..].iter().collect();
+        if let Some(sub) = dir.children.iter_mut().find(|n| n.is_dir && n.name == sub_name) {
+            insert_into_dir(sub, &rest, file);
+        } else {
+            let mut new_sub = TreeNode { name: sub_name, path: sub_path, is_dir: true, children: vec![], file: None };
+            insert_into_dir(&mut new_sub, &rest, file);
+            dir.children.push(new_sub);
+        }
+    }
+}
+
+fn collect_file_paths(node: &TreeNode) -> Vec<PathBuf> {
+    if !node.is_dir {
+        return node.file.as_ref().map(|f| vec![f.path.clone()]).unwrap_or_default();
+    }
+    node.children.iter().flat_map(collect_file_paths).collect()
+}
+
+struct TreeCtx<'a> {
+    is_staged: bool,
+    discard_confirm_path: &'a Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct TreeNodeResult {
+    selected: Option<PathBuf>,
+    stage_action: Option<PathBuf>,
+    history: Option<PathBuf>,
+    want_discard_confirm: Option<PathBuf>,
+    discard_confirmed: Option<PathBuf>,
+    folder_stage: Option<Vec<PathBuf>>,
+    folder_unstage: Option<Vec<PathBuf>>,
+}
+
+fn show_tree_node(
+    ui: &mut egui::Ui,
+    p: &Palette,
+    node: &TreeNode,
+    depth: usize,
+    selected_file: &Option<PathBuf>,
+    dir_open: &mut HashMap<PathBuf, bool>,
+    ctx: &TreeCtx<'_>,
+) -> TreeNodeResult {
+    let mut result = TreeNodeResult::default();
+
+    if node.is_dir {
+        let open = *dir_open.entry(node.path.clone()).or_insert(true);
+        let indent = depth as f32 * 12.0;
+        let available_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(available_width, 20.0), egui::Sense::click());
+
+        if ui.is_rect_visible(rect) {
+            let bg = if response.hovered() { p.bg_secondary } else { egui::Color32::TRANSPARENT };
+            ui.painter().rect_filled(rect, 0.0, bg);
+            let y = rect.center().y;
+            let chevron_x = rect.min.x + 8.0 + indent;
+            paint_chevron(ui.painter(), egui::pos2(chevron_x, y), open, p.text_tertiary);
+            ui.painter().text(
+                egui::pos2(chevron_x + 10.0, y),
+                egui::Align2::LEFT_CENTER,
+                &node.name,
+                egui::FontId::proportional(11.0),
+                p.text_secondary,
+            );
+        }
+
+        if response.clicked() {
+            dir_open.insert(node.path.clone(), !open);
+        }
+
+        // Folder context menu
+        let folder_stage_cell = std::cell::Cell::new(false);
+        let folder_unstage_cell = std::cell::Cell::new(false);
+        response.context_menu(|ui| {
+            if ctx.is_staged {
+                if ui.button("Unstage folder").clicked() { folder_unstage_cell.set(true); ui.close_menu(); }
+            } else {
+                if ui.button("Stage folder").clicked() { folder_stage_cell.set(true); ui.close_menu(); }
+            }
+        });
+        if folder_stage_cell.get() {
+            result.folder_stage = Some(collect_file_paths(node));
+        }
+        if folder_unstage_cell.get() {
+            result.folder_unstage = Some(collect_file_paths(node));
+        }
+
+        if open {
+            for child in &node.children {
+                let child_result = show_tree_node(ui, p, child, depth + 1, selected_file, dir_open, ctx);
+                if child_result.selected.is_some() { result.selected = child_result.selected; }
+                if child_result.stage_action.is_some() { result.stage_action = child_result.stage_action; }
+                if child_result.history.is_some() { result.history = child_result.history; }
+                if child_result.want_discard_confirm.is_some() { result.want_discard_confirm = child_result.want_discard_confirm; }
+                if child_result.discard_confirmed.is_some() { result.discard_confirmed = child_result.discard_confirmed; }
+                if child_result.folder_stage.is_some() { result.folder_stage = child_result.folder_stage; }
+                if child_result.folder_unstage.is_some() { result.folder_unstage = child_result.folder_unstage; }
+            }
+        }
+    } else if let Some(file) = &node.file {
+        let in_confirm = ctx.discard_confirm_path.as_ref() == Some(&file.path);
+        let indent = depth as f32 * 12.0;
+        let (sel, action, hist, want_confirm, confirmed, _ctrl, _multi) =
+            FileList::show_file_row(ui, p, selected_file, file, ctx.is_staged, in_confirm, 0, indent);
+        if sel { result.selected = Some(file.path.clone()); }
+        if action { result.stage_action = Some(file.path.clone()); }
+        if hist { result.history = Some(file.path.clone()); }
+        if want_confirm { result.want_discard_confirm = Some(file.path.clone()); }
+        if confirmed { result.discard_confirmed = Some(file.path.clone()); }
+    }
+
+    result
 }
 
 fn paint_chevron(painter: &egui::Painter, center: egui::Pos2, open: bool, color: egui::Color32) {
