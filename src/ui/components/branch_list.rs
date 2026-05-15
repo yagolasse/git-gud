@@ -92,6 +92,7 @@ impl BranchList {
         let mut stash_to_drop: Option<usize> = None;
         let mut stash_to_apply: Option<usize> = None;
         let mut tag_to_push: Option<String> = None;
+        let mut tag_to_delete: Option<String> = None;
         let mut worktree_to_remove: Option<std::path::PathBuf> = None;
 
         egui::ScrollArea::vertical()
@@ -156,10 +157,9 @@ impl BranchList {
                         Self::show_empty_hint(ui, p, "No tags", 22.0);
                     } else {
                         for tag in &tags {
-                            let push = Self::show_tag_row(ui, p, &tag.name, 18.0);
-                            if push {
-                                tag_to_push = Some(tag.name.clone());
-                            }
+                            let (push, delete) = Self::show_tag_row(ui, p, &tag.name, 18.0);
+                            if push { tag_to_push = Some(tag.name.clone()); }
+                            if delete { tag_to_delete = Some(tag.name.clone()); }
                         }
                     }
                 }
@@ -200,6 +200,12 @@ impl BranchList {
 
         if let Some(name) = tag_to_push {
             state.ui_state.pending_action = Some(crate::state::PendingAction::PushTag(name));
+        }
+        if let Some(name) = tag_to_delete {
+            match state.repository_state_mut().delete_tag(&name) {
+                Ok(()) => state.set_info(format!("Tag '{}' deleted", name)),
+                Err(e) => state.set_error(format!("Failed to delete tag: {}", e)),
+            }
         }
         if let Some(name) = branch_to_select {
             state.ui_state.select_branch(name);
@@ -544,7 +550,7 @@ impl BranchList {
         }
     }
 
-    fn show_tag_row(ui: &mut egui::Ui, p: &Palette, tag: &str, indent: f32) -> bool {
+    fn show_tag_row(ui: &mut egui::Ui, p: &Palette, tag: &str, indent: f32) -> (bool, bool) {
         let available_width = ui.available_width();
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available_width, 24.0), egui::Sense::click());
@@ -563,6 +569,7 @@ impl BranchList {
         }
 
         let push_clicked = Cell::new(false);
+        let delete_clicked = Cell::new(false);
         response.context_menu(|ui| {
             if ui.button("Copy name").clicked() {
                 ui.output_mut(|o| o.copied_text = tag.to_string());
@@ -572,13 +579,17 @@ impl BranchList {
                 push_clicked.set(true);
                 ui.close_menu();
             }
+            if ui.button("Delete tag").clicked() {
+                delete_clicked.set(true);
+                ui.close_menu();
+            }
         });
 
         if response.clicked() {
             ui.output_mut(|o| o.copied_text = tag.to_string());
         }
 
-        push_clicked.get()
+        (push_clicked.get(), delete_clicked.get())
     }
 
     fn show_branch_row(

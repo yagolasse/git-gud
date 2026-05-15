@@ -240,6 +240,12 @@ impl RepositoryState {
         Ok(())
     }
 
+    pub fn delete_tag(&mut self, name: &str) -> anyhow::Result<()> {
+        services::GitService::delete_tag(&self.repository, name)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     /// Rename a local branch
     pub fn rename_branch(&mut self, old_name: &str, new_name: &str) -> anyhow::Result<()> {
         services::GitService::rename_branch(&self.repository, old_name, new_name)?;

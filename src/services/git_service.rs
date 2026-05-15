@@ -259,6 +259,13 @@ impl GitService {
         Ok(())
     }
 
+    pub fn delete_tag(repo: &Repository, name: &str) -> Result<()> {
+        repo.tag_delete(name)
+            .map_err(|e| anyhow!("Failed to delete tag '{}': {}", name, e))?;
+        log::info!("Tag '{}' deleted", name);
+        Ok(())
+    }
+
     /// Get HEAD commit
     pub fn get_head_commit(repo: &Repository) -> Result<models::Commit> {
         log::info!("Getting HEAD commit");
