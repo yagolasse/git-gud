@@ -106,10 +106,7 @@ impl RecentRepos {
     /// Load recent repositories from default location
     pub fn load_default() -> Self {
         let path = Self::default_path();
-        match Self::load_from_file(&path) {
-            Ok(repos) => repos,
-            Err(_) => Self::default(),
-        }
+        Self::load_from_file(&path).unwrap_or_default()
     }
 
     /// Save recent repositories to default location

@@ -91,11 +91,10 @@ fn split_kv(line: &str) -> Option<(&str, &str)> {
 
 fn resolve_tilde(path: PathBuf) -> PathBuf {
     let s = path.to_string_lossy();
-    if s.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(&s[2..]);
+    if let Some(stripped) = s.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir() {
+            return home.join(stripped);
         }
-    }
     path
 }
 

@@ -13,13 +13,12 @@ impl PassphraseDialog {
     pub fn poll_and_show(&mut self, ctx: &egui::Context, ui_state: &mut crate::state::UIState) {
         let askpass_requests = askpass::state().lock().unwrap();
 
-        if !ui_state.show_passphrase_dialog {
-            if let Some(req) = askpass_requests.pending.last() {
+        if !ui_state.show_passphrase_dialog
+            && let Some(req) = askpass_requests.pending.last() {
                 ui_state.show_passphrase_dialog = true;
                 ui_state.passphrase_prompt = req.prompt.clone();
                 ui_state.passphrase_input.clear();
             }
-        }
 
         drop(askpass_requests);
 

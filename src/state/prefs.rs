@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[derive(Default)]
 pub struct AppPrefs {
     pub dark_mode: bool,
     pub last_repo: Option<PathBuf>,
@@ -33,11 +34,10 @@ impl AppPrefs {
         for line in content.lines() {
             if let Some(val) = line.strip_prefix("dark_mode=") {
                 prefs.dark_mode = val == "true";
-            } else if let Some(val) = line.strip_prefix("last_repo=") {
-                if !val.is_empty() {
+            } else if let Some(val) = line.strip_prefix("last_repo=")
+                && !val.is_empty() {
                     prefs.last_repo = Some(PathBuf::from(val));
                 }
-            }
         }
         Ok(prefs)
     }
@@ -53,11 +53,6 @@ impl AppPrefs {
     }
 }
 
-impl Default for AppPrefs {
-    fn default() -> Self {
-        Self { dark_mode: false, last_repo: None }
-    }
-}
 
 #[cfg(test)]
 mod tests {

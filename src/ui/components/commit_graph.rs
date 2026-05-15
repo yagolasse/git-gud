@@ -95,17 +95,16 @@ fn build_graph(commits: &[Commit]) -> Vec<GraphRow> {
                 if target_lane != my_lane {
                     forking.push((target_lane, target_lane));
                 }
-            } else if let Some(al) = already {
-                if al != my_lane {
+            } else if let Some(al) = already
+                && al != my_lane {
                     forking.push((al, al));
                 }
-            }
         }
 
         // Release our lane if it won't be used by anyone further down
         // (i.e., no parent claims this lane via first-parent inheritance)
         let first_parent_idx = parent_idxs.first().copied();
-        let lane_claimed = first_parent_idx.map_or(false, |pidx| {
+        let lane_claimed = first_parent_idx.is_some_and(|pidx| {
             lanes.get(my_lane) == Some(&Some(pidx))
         });
         if !lane_claimed {
@@ -146,11 +145,10 @@ fn reachable_from(tip_id: &str, commits: &[Commit]) -> HashSet<String> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue = vec![tip_id.to_owned()];
     while let Some(id) = queue.pop() {
-        if visited.insert(id.clone()) {
-            if let Some(parents) = parent_map.get(id.as_str()) {
+        if visited.insert(id.clone())
+            && let Some(parents) = parent_map.get(id.as_str()) {
                 queue.extend(parents.iter().cloned());
             }
-        }
     }
     visited
 }
@@ -419,8 +417,8 @@ impl CommitGraph {
                 }
             });
 
-        if let Some(id) = cherry_pick_no_commit_id {
-            if let Some(commit) = commits.iter().find(|c| c.id == id) {
+        if let Some(id) = cherry_pick_no_commit_id
+            && let Some(commit) = commits.iter().find(|c| c.id == id) {
                 let msg = commit.message.trim().to_owned();
                 let short = &id[..7.min(id.len())];
                 match state.repository_state_mut().cherry_pick_no_commit(&id) {
@@ -438,7 +436,6 @@ impl CommitGraph {
                     }
                 }
             }
-        }
 
         cherry_pick_id
     }
@@ -540,7 +537,7 @@ fn ellipsize(s: &str, max_px: f32, ui: &egui::Ui, font: &egui::FontId) -> String
     let mut lo = 0usize;
     let mut hi = chars.len();
     while lo < hi {
-        let mid = (lo + hi + 1) / 2;
+        let mid = (lo + hi).div_ceil(2);
         let slice: String = chars[..mid].iter().collect();
         let w = ui.fonts(|f| f.layout_no_wrap(slice, font.clone(), Color32::WHITE).size().x);
         if w <= budget { lo = mid; } else { hi = mid - 1; }

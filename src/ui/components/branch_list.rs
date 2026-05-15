@@ -265,11 +265,10 @@ impl BranchList {
                     ui.label("Path:");
                     ui.horizontal(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut state.ui_state.new_worktree_path).desired_width(240.0));
-                        if ui.button("Browse…").clicked() {
-                            if let Some(p) = crate::ui::FileDialog::open_directory() {
+                        if ui.button("Browse…").clicked()
+                            && let Some(p) = crate::ui::FileDialog::open_directory() {
                                 state.ui_state.new_worktree_path = p.to_string_lossy().to_string();
                             }
-                        }
                     });
                     ui.label("Branch:");
                     ui.add(egui::TextEdit::singleline(&mut state.ui_state.new_worktree_branch).desired_width(240.0));
@@ -672,12 +671,11 @@ impl BranchList {
                     rename_from_menu.set(true);
                     ui.close_menu();
                 }
-                if !branch.is_current {
-                    if ui.button("Merge into current").clicked() {
+                if !branch.is_current
+                    && ui.button("Merge into current").clicked() {
                         merge_from_menu.set(true);
                         ui.close_menu();
                     }
-                }
             }
             ui.separator();
             if branch.is_current {
@@ -784,12 +782,11 @@ impl BranchList {
                 ui.output_mut(|o| o.copied_text = wt.path.to_string_lossy().to_string());
                 ui.close_menu();
             }
-            if !wt.is_current {
-                if ui.button("Remove").clicked() {
+            if !wt.is_current
+                && ui.button("Remove").clicked() {
                     remove_clicked.set(true);
                     ui.close_menu();
                 }
-            }
         });
 
         if remove_clicked.get() { Some(wt.path.clone()) } else { None }

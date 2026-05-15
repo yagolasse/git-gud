@@ -15,7 +15,7 @@ pub fn init_config(config: GitConfig) {
 }
 
 pub fn config() -> &'static GitConfig {
-    GIT_CONFIG.get_or_init(|| GitConfig::default())
+    GIT_CONFIG.get_or_init(GitConfig::default)
 }
 
 /// Configuration for the system git binary
@@ -188,7 +188,7 @@ pub fn run_streaming_std(
     let (stderr_done_tx, stderr_done_rx) = mpsc::channel::<String>();
     std::thread::spawn(move || {
         let mut acc = String::new();
-        for line in BufReader::new(stderr).lines().flatten() {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             let line = line.trim_end_matches('\r').to_string();
             if !acc.is_empty() { acc.push('\n'); }
             acc.push_str(&line);
@@ -199,11 +199,11 @@ pub fn run_streaming_std(
 
     // Stdout reader + completion: reads stdout, then waits for the process and stderr thread.
     std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let line = line.trim_end_matches('\r').to_string();
             let _ = tx.send(StreamLine::Output(line));
         }
-        let exit_ok = child.wait().map_or(false, |s| s.success());
+        let exit_ok = child.wait().is_ok_and(|s| s.success());
         let stderr_msg = stderr_done_rx.recv().unwrap_or_default();
         let result = if exit_ok {
             Ok(())

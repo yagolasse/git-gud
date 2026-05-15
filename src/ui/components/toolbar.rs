@@ -191,6 +191,7 @@ impl Toolbar {
         action
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn pill_button(
         &self,
         ui: &mut egui::Ui,
@@ -232,6 +233,7 @@ impl Toolbar {
         (pill_rect, resp)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn ghost_btn(
         &self,
         ui: &mut egui::Ui,

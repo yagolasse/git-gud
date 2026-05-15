@@ -230,11 +230,10 @@ impl AppState {
 
     /// Pre-populate the commit message fields from the HEAD commit (used when amend is toggled on)
     pub fn prefill_amend_message(&mut self) {
-        if let Some(repo_state) = &self.repository_state {
-            if let Some(head) = &repo_state.head_commit {
+        if let Some(repo_state) = &self.repository_state
+            && let Some(head) = &repo_state.head_commit {
                 self.ui_state.set_commit_message(&head.message);
             }
-        }
     }
 
     /// Refresh repository status (unstaged/staged files, branches, etc.)
@@ -446,11 +445,10 @@ impl AppState {
             match result {
                 Ok(()) => {
                     self.set_info(format!("{} successful", operation));
-                    if refresh_on_complete {
-                        if let Some(rs) = self.repository_state.as_mut() {
+                    if refresh_on_complete
+                        && let Some(rs) = self.repository_state.as_mut() {
                             let _ = rs.refresh();
                         }
-                    }
                 }
                 Err(e) => self.set_error(e),
             }

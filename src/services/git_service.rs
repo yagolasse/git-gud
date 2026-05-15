@@ -150,7 +150,7 @@ impl GitService {
         for branch_result in all_branches {
             let (branch, branch_type) = branch_result?;
             let name = branch.name()?.unwrap_or("").to_string();
-            let is_current = current_branch.as_ref().map_or(false, |cb| cb == &name);
+            let is_current = current_branch.as_ref() == Some(&name);
 
             let commit_id = branch
                 .get()
@@ -213,16 +213,15 @@ impl GitService {
 
         let tag_names = repo.tag_names(None)?;
         let mut tags = Vec::new();
-        for name in tag_names.iter().filter_map(|n| n) {
+        for name in tag_names.iter().flatten() {
             let refname = format!("refs/tags/{}", name);
-            if let Ok(reference) = repo.find_reference(&refname) {
-                if let Ok(commit) = reference.peel_to_commit() {
+            if let Ok(reference) = repo.find_reference(&refname)
+                && let Ok(commit) = reference.peel_to_commit() {
                     tags.push(models::Tag {
                         name: name.to_string(),
                         commit_id: commit.id().to_string(),
                     });
                 }
-            }
         }
 
         log::debug!("Found {} tags", tags.len());
@@ -281,7 +280,7 @@ impl GitService {
             if let Err(e) = index.add_path(relative_path) {
                 // If adding fails, try to update (for modified files)
                 if e.code() == ErrorCode::NotFound {
-                    if let Err(e2) = index.update_all(&[relative_path], None) {
+                    if let Err(e2) = index.update_all([relative_path], None) {
                         return Err(anyhow!("Failed to stage file {}: {}", path_str, e2));
                     }
                 } else {
@@ -325,7 +324,7 @@ impl GitService {
 
         // Use reset_default to unstage files (equivalent to git reset HEAD -- <file>)
         // This handles all cases: modified, added, deleted files
-        if let Some(head) = repo.head().ok() {
+        if let Ok(head) = repo.head() {
             let target = head.peel_to_commit()?.into_object();
 
             // Build array of pathspecs
@@ -439,8 +438,7 @@ impl GitService {
 
         // If no staged changes, diff between index and working directory
         let diff = if diff.deltas().len() == 0 {
-            let diff = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))?;
-            diff
+            repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))?
         } else {
             diff
         };
@@ -473,7 +471,7 @@ impl GitService {
                             path_str, line_count
                         ));
                         for line in content.lines() {
-                            diff_text.push_str("+");
+                            diff_text.push('+');
                             diff_text.push_str(line);
                             diff_text.push('\n');
                         }
@@ -575,7 +573,7 @@ impl GitService {
 
         log::info!("Pulling {} from {}", branch, remote_name);
         crate::services::git_command::run_blocking(
-            workdir.as_ref(),
+            workdir,
             &["pull", "--ff-only", remote_name, &branch],
         )
         .map_err(|e| anyhow!("{}", e))?;
@@ -601,7 +599,7 @@ impl GitService {
         args.push(remote_name);
         args.push(branch_name);
 
-        crate::services::git_command::run_blocking(workdir.as_ref(), &args)
+        crate::services::git_command::run_blocking(workdir,&args)
             .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
@@ -612,7 +610,7 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         log::info!("Fetching from {}", remote_name);
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["fetch", remote_name])
+        crate::services::git_command::run_blocking(workdir,&["fetch", remote_name])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -622,7 +620,7 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         log::info!("Cherry-picking {}", commit_id);
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", commit_id])
+        crate::services::git_command::run_blocking(workdir,&["cherry-pick", commit_id])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -630,7 +628,7 @@ impl GitService {
     pub fn cherry_pick_skip(repo: &Repository) -> Result<()> {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", "--skip"])
+        crate::services::git_command::run_blocking(workdir,&["cherry-pick", "--skip"])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -639,9 +637,9 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         let path_str = path.to_string_lossy();
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["checkout", "--ours", &path_str])
+        crate::services::git_command::run_blocking(workdir,&["checkout", "--ours", &path_str])
             .map_err(|e| anyhow!("{}", e))?;
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["add", &path_str])
+        crate::services::git_command::run_blocking(workdir,&["add", &path_str])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -650,9 +648,9 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         let path_str = path.to_string_lossy();
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["checkout", "--theirs", &path_str])
+        crate::services::git_command::run_blocking(workdir,&["checkout", "--theirs", &path_str])
             .map_err(|e| anyhow!("{}", e))?;
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["add", &path_str])
+        crate::services::git_command::run_blocking(workdir,&["add", &path_str])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -662,7 +660,7 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         log::info!("Merging {}", branch_name);
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["merge", branch_name])
+        crate::services::git_command::run_blocking(workdir,&["merge", branch_name])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -675,7 +673,7 @@ impl GitService {
         let refspec = format!("refs/tags/{}", tag_name);
         log::info!("Pushing tag {} to {}", tag_name, remote_name);
         crate::services::git_command::run_blocking(
-            workdir.as_ref(),
+            workdir,
             &["push", remote_name, &refspec],
         )
         .map_err(|e| anyhow!("{}", e))?;
@@ -688,7 +686,7 @@ impl GitService {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
         log::info!("Cherry-picking --no-commit {}", commit_id);
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["cherry-pick", "--no-commit", commit_id])
+        crate::services::git_command::run_blocking(workdir,&["cherry-pick", "--no-commit", commit_id])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -697,16 +695,16 @@ impl GitService {
     pub fn list_worktrees(repo: &Repository) -> Result<Vec<crate::models::WorktreeEntry>> {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
-        let output = crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "list", "--porcelain"])
+        let output = crate::services::git_command::run_blocking(workdir, &["worktree", "list", "--porcelain"])
             .map_err(|e| anyhow!("{}", e))?;
-        Ok(parse_worktrees(&output, workdir.as_ref()))
+        Ok(parse_worktrees(&output, workdir))
     }
 
     /// Add a git worktree at `path` checking out `branch`.
     pub fn add_worktree(repo: &Repository, path: &std::path::Path, branch: &str) -> Result<()> {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "add", &path.to_string_lossy(), branch])
+        crate::services::git_command::run_blocking(workdir,&["worktree", "add", &path.to_string_lossy(), branch])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -715,7 +713,7 @@ impl GitService {
     pub fn remove_worktree(repo: &Repository, path: &std::path::Path) -> Result<()> {
         let workdir = repo.workdir()
             .ok_or_else(|| anyhow!("Not a working repository"))?;
-        crate::services::git_command::run_blocking(workdir.as_ref(), &["worktree", "remove", &path.to_string_lossy()])
+        crate::services::git_command::run_blocking(workdir,&["worktree", "remove", &path.to_string_lossy()])
             .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
@@ -729,12 +727,11 @@ impl GitService {
         let mut any_pushed = false;
         if let Ok(refs) = repo.references() {
             for r in refs.flatten() {
-                if r.is_branch() {
-                    if let Some(oid) = r.target() {
+                if r.is_branch()
+                    && let Some(oid) = r.target() {
                         let _ = walk.push(oid);
                         any_pushed = true;
                     }
-                }
             }
         }
         if !any_pushed {
@@ -780,11 +777,11 @@ fn parse_worktrees(output: &str, main_workdir: &std::path::Path) -> Vec<crate::m
     };
 
     for line in output.lines() {
-        if line.starts_with("worktree ") {
+        if let Some(stripped) = line.strip_prefix("worktree ") {
             flush(&mut path, &mut branch, &mut entries, main_workdir);
-            path = Some(std::path::PathBuf::from(line["worktree ".len()..].trim()));
-        } else if line.starts_with("branch ") {
-            let b = line["branch ".len()..].trim();
+            path = Some(std::path::PathBuf::from(stripped.trim()));
+        } else if let Some(stripped) = line.strip_prefix("branch ") {
+            let b = stripped.trim();
             let b = b.strip_prefix("refs/heads/").unwrap_or(b);
             branch = Some(b.to_string());
         }

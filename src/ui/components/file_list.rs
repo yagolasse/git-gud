@@ -84,7 +84,7 @@ impl FileList {
             state.ui_state.pending_action = Some(crate::state::PendingAction::UnstageAll(paths));
         }
         if let Some(path) = file_to_stage {
-            if let Err(e) = state.repository_state_mut().stage_files(&[path.clone()]) {
+            if let Err(e) = state.repository_state_mut().stage_files(std::slice::from_ref(&path)) {
                 state.set_error(format!("Failed to stage: {}", e));
             } else {
                 state.set_info(format!("Staged: {}", path.display()));
@@ -92,7 +92,7 @@ impl FileList {
             }
         }
         if let Some(path) = file_to_unstage {
-            if let Err(e) = state.repository_state_mut().unstage_files(&[path.clone()]) {
+            if let Err(e) = state.repository_state_mut().unstage_files(std::slice::from_ref(&path)) {
                 state.set_error(format!("Failed to unstage: {}", e));
             } else {
                 state.set_info(format!("Unstaged: {}", path.display()));
@@ -161,8 +161,8 @@ impl FileList {
         }
 
         let mut action_clicked = false;
-        if let Some(label) = action_label {
-            if response.hovered() {
+        if let Some(label) = action_label
+            && response.hovered() {
                 let action_char = if label.contains("Stage") { "+" } else { "-" };
                 let btn_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.max.x - 22.0, rect.min.y + 3.0),
@@ -185,7 +185,6 @@ impl FileList {
                 }
                 action_clicked = btn.clicked();
             }
-        }
 
         action_clicked
     }
@@ -242,8 +241,8 @@ impl FileList {
 
             let icon_left = icon_center.x - 9.0;
             let path_x = name_rect.max.x + 5.0;
-            if path_x < icon_left - 4.0 {
-                if let Some(parent) = file.path.parent() {
+            if path_x < icon_left - 4.0
+                && let Some(parent) = file.path.parent() {
                     let parent_str = parent.to_string_lossy();
                     if !parent_str.is_empty() && parent_str != "." {
                         ui.painter().text(
@@ -255,7 +254,6 @@ impl FileList {
                         );
                     }
                 }
-            }
 
             let can_stage = file.status != FileStatus::Conflicted;
             if hovered && can_stage {
@@ -292,12 +290,11 @@ impl FileList {
         let action_from_menu = Cell::new(false);
         let can_stage = file.status != FileStatus::Conflicted;
         response.context_menu(|ui| {
-            if can_stage {
-                if ui.button(if is_staged { "Unstage" } else { "Stage" }).clicked() {
+            if can_stage
+                && ui.button(if is_staged { "Unstage" } else { "Stage" }).clicked() {
                     action_from_menu.set(true);
                     ui.close_menu();
                 }
-            }
             if ui.button("Copy path").clicked() {
                 ui.output_mut(|o| o.copied_text = file.path.to_string_lossy().to_string());
                 ui.close_menu();

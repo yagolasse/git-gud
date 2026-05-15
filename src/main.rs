@@ -34,9 +34,11 @@ fn run_gui_with_path(initial_path: Option<std::path::PathBuf>) -> anyhow::Result
 
     log::info!("Askpass server listening on port {}", port);
 
-    let mut git_config = git_gud::services::git_command::GitConfig::default();
-    git_config.askpass = Some(std::path::PathBuf::from(std::env::current_exe().unwrap_or_default()));
-    git_config.askpass_port = Some(port);
+    let git_config = git_gud::services::git_command::GitConfig {
+        askpass: Some(std::env::current_exe().unwrap_or_default()),
+        askpass_port: Some(port),
+        ..Default::default()
+    };
     git_gud::services::git_command::init_config(git_config);
 
     log::info!("Starting Git Gud GUI application");

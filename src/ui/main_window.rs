@@ -79,8 +79,8 @@ impl MainWindow {
                 window.open_repo_path = path.to_string_lossy().to_string();
                 window.recent_repos.add(&path_buf);
             }
-        } else if let Some(last_repo) = window.prefs.last_repo.clone() {
-            if last_repo.exists() {
+        } else if let Some(last_repo) = window.prefs.last_repo.clone()
+            && last_repo.exists() {
                 let loaded = {
                     let mut state = window.state.lock();
                     state.load_repository(last_repo.clone()).is_ok()
@@ -94,7 +94,6 @@ impl MainWindow {
                     }
                 }
             }
-        }
 
         window
     }
@@ -128,11 +127,10 @@ impl MainWindow {
 
         {
             let state = self.state.lock();
-            if let Some(error) = &state.error_message {
-                if !self.error_dialog.is_visible() {
+            if let Some(error) = &state.error_message
+                && !self.error_dialog.is_visible() {
                     self.error_dialog.show_error(error.clone());
                 }
-            }
         }
 
         if self.error_dialog.show(ctx) {
@@ -360,11 +358,10 @@ impl MainWindow {
                 ui.horizontal(|ui| {
                     ui.label("Path:");
                     ui.text_edit_singleline(&mut self.open_repo_path);
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = FileDialog::open_directory() {
+                    if ui.button("Browse...").clicked()
+                        && let Some(path) = FileDialog::open_directory() {
                             self.open_repo_path = path.to_string_lossy().to_string();
                         }
-                    }
                 });
 
                 ui.horizontal(|ui| {
@@ -575,11 +572,10 @@ impl MainWindow {
             // Ctrl+R — Refresh
             if i.key_pressed(egui::Key::R) && i.modifiers.ctrl {
                 let mut state = self.state.lock();
-                if state.has_repository() {
-                    if let Err(e) = state.repository_state_mut().refresh() {
+                if state.has_repository()
+                    && let Err(e) = state.repository_state_mut().refresh() {
                         state.set_error(format!("Refresh failed: {}", e));
                     }
-                }
             }
 
             // ArrowUp / ArrowDown — navigate file list
