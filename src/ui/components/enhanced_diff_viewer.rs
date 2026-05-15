@@ -185,7 +185,11 @@ impl EnhancedDiffViewer {
         let btn_h = 24.0;
         let font = egui::FontId::proportional(11.0);
 
-        let labels = [("Unified", DiffDisplayMode::Unified), ("Split", DiffDisplayMode::SideBySide)];
+        let labels = [
+            ("Unified", DiffDisplayMode::Unified),
+            ("Split", DiffDisplayMode::SideBySide),
+            ("Word", DiffDisplayMode::WordLevel),
+        ];
         let widths: Vec<f32> = labels.iter().map(|(lbl, _)| {
             ui.fonts(|f| f.layout_no_wrap(lbl.to_string(), font.clone(), p.text_secondary).size().x) + 20.0
         }).collect();
@@ -197,6 +201,7 @@ impl EnhancedDiffViewer {
         );
         ui.painter().rect_stroke(group_rect, 6.0, egui::Stroke::new(0.5, p.border));
 
+        let last_idx = labels.len() - 1;
         let mut bx = group_rect.min.x;
         for (i, (label, mode)) in labels.iter().enumerate() {
             let btn_rect = egui::Rect::from_min_size(
@@ -210,8 +215,10 @@ impl EnhancedDiffViewer {
             if active {
                 let rounding = if i == 0 {
                     egui::Rounding { nw: 6.0, sw: 6.0, ne: 0.0, se: 0.0 }
-                } else {
+                } else if i == last_idx {
                     egui::Rounding { nw: 0.0, sw: 0.0, ne: 6.0, se: 6.0 }
+                } else {
+                    egui::Rounding::ZERO
                 };
                 ui.painter().rect_filled(btn_rect, rounding, p.bg_tertiary);
             }
@@ -270,6 +277,7 @@ impl EnhancedDiffViewer {
         let syntax_svc = std::sync::Arc::clone(&self.syntax_service);
         let file_path_owned = file_path.to_path_buf();
         let mut pending: Option<crate::state::PendingAction> = None;
+        let word_level = self.config.mode == DiffDisplayMode::WordLevel;
 
         egui::ScrollArea::vertical()
             .id_salt(egui::Id::new("unified_diff").with(file_path))
@@ -277,12 +285,13 @@ impl EnhancedDiffViewer {
             .show_rows(ui, ROW_HEIGHT, lines.len(), |ui, row_range| {
                 let syntax = syntax_svc.detect_syntax(&file_path_owned);
                 for i in row_range {
-                    let job = if !lines[i].content.is_empty() && lines[i].change_type != LineChangeType::ConflictSeparator {
+                    let use_word = word_level && !lines[i].word_changes.is_empty();
+                    let job = if !use_word && !lines[i].content.is_empty() && lines[i].change_type != LineChangeType::ConflictSeparator {
                         Some(syntax_svc.highlight_line(&lines[i].content, syntax))
                     } else {
                         None
                     };
-                    if let Some(action) = Self::show_diff_row(ui, p, &lines[i], job, &file_path_owned) {
+                    if let Some(action) = Self::show_diff_row(ui, p, &lines[i], job, &file_path_owned, word_level) {
                         pending = Some(action);
                     }
                 }
@@ -297,6 +306,7 @@ impl EnhancedDiffViewer {
         line: &crate::models::diff::DiffLine,
         highlight: Option<egui::text::LayoutJob>,
         file_path: &std::path::Path,
+        word_level: bool,
     ) -> Option<crate::state::PendingAction> {
         let is_conflict_sep = line.change_type == LineChangeType::ConflictSeparator;
         // Conflict separator rows are taller to accommodate the Accept buttons
@@ -391,16 +401,19 @@ impl EnhancedDiffViewer {
         }
 
         if !line.content.is_empty() {
-            if let Some(job) = highlight {
+            let content_x = rect.min.x + GUTTER_TOTAL + 2.0;
+            if word_level && !line.word_changes.is_empty() {
+                let job = build_word_diff_job(p, line, &mono, text_color);
                 let galley = ui.fonts(|f| f.layout_job(job));
-                let pos = egui::pos2(
-                    rect.min.x + GUTTER_TOTAL + 2.0,
-                    rect.min.y + (row_h - galley.size().y) / 2.0,
-                );
+                let pos = egui::pos2(content_x, rect.min.y + (row_h - galley.size().y) / 2.0);
+                painter.galley(pos, galley, text_color);
+            } else if let Some(job) = highlight {
+                let galley = ui.fonts(|f| f.layout_job(job));
+                let pos = egui::pos2(content_x, rect.min.y + (row_h - galley.size().y) / 2.0);
                 painter.galley(pos, galley, text_color);
             } else {
                 painter.text(
-                    egui::pos2(rect.min.x + GUTTER_TOTAL + 2.0, y),
+                    egui::pos2(content_x, y),
                     egui::Align2::LEFT_CENTER,
                     &line.content, mono, text_color,
                 );
@@ -454,7 +467,7 @@ impl EnhancedDiffViewer {
                         } else {
                             None
                         };
-                        Self::show_diff_row(ui, p, &left_lines[i], job, &fp);
+                        Self::show_diff_row(ui, p, &left_lines[i], job, &fp, false);
                     }
                 });
             new_sync_y = left_out.state.offset.y;
@@ -473,7 +486,7 @@ impl EnhancedDiffViewer {
                     } else {
                         None
                     };
-                    Self::show_diff_row(ui, p, &right_lines[i], job, &fp2);
+                    Self::show_diff_row(ui, p, &right_lines[i], job, &fp2, false);
                 }
             });
         });
@@ -515,7 +528,8 @@ impl EnhancedDiffViewer {
 
             match crate::services::GitService::get_file_diff(&repo_state.repository, &selected_file) {
                 Ok(diff_text) => {
-                    let unified = self.diff_parser.parse_unified(&diff_text);
+                    let mut unified = self.diff_parser.parse_unified(&diff_text);
+                    self.diff_parser.apply_word_diffs(&mut unified.lines);
                     self.unified_diff = Some(unified.clone());
                     self.side_by_side_diff = Some(self.diff_parser.unified_to_side_by_side(&unified));
                 }
@@ -546,6 +560,49 @@ impl EnhancedDiffViewer {
 
 impl Default for EnhancedDiffViewer {
     fn default() -> Self { Self::new() }
+}
+
+fn build_word_diff_job(
+    p: &Palette,
+    line: &DiffLine,
+    mono: &egui::FontId,
+    text_color: egui::Color32,
+) -> egui::text::LayoutJob {
+    let highlight_bg = match line.change_type {
+        LineChangeType::Added => p.diff_word_add_bg,
+        LineChangeType::Removed => p.diff_word_rem_bg,
+        _ => return egui::text::LayoutJob::default(),
+    };
+    let content = &line.content;
+    let mut job = egui::text::LayoutJob::default();
+    let mut pos = 0usize;
+    for wc in &line.word_changes {
+        if content[wc.start..wc.end].trim().is_empty() {
+            continue;
+        }
+        if pos < wc.start {
+            job.append(&content[pos..wc.start], 0.0, egui::text::TextFormat {
+                font_id: mono.clone(),
+                color: text_color,
+                ..Default::default()
+            });
+        }
+        job.append(&content[wc.start..wc.end], 0.0, egui::text::TextFormat {
+            font_id: mono.clone(),
+            color: text_color,
+            background: highlight_bg,
+            ..Default::default()
+        });
+        pos = wc.end;
+    }
+    if pos < content.len() {
+        job.append(&content[pos..], 0.0, egui::text::TextFormat {
+            font_id: mono.clone(),
+            color: text_color,
+            ..Default::default()
+        });
+    }
+    job
 }
 
 fn paint_gear(painter: &egui::Painter, center: egui::Pos2, color: egui::Color32) {

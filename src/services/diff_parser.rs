@@ -2,7 +2,10 @@
 //!
 //! This service provides parsing and conversion of diffs between different formats.
 
-use crate::models::diff::{SideBySideDiff, UnifiedDiff};
+use crate::models::diff::{
+    DiffLine, LineChangeType, SideBySideDiff, UnifiedDiff, WordChange, WordChangeType,
+};
+use std::collections::HashSet;
 use std::path::Path;
 
 /// Diff parser service
@@ -54,12 +57,137 @@ impl DiffParser {
         // If no extension, assume it might be text
         true
     }
+
+    /// Post-process parsed diff lines to populate word-level changes on paired Removed/Added runs.
+    pub fn apply_word_diffs(&self, lines: &mut [DiffLine]) {
+        let mut i = 0;
+        while i < lines.len() {
+            let rem_start = i;
+            while i < lines.len() && lines[i].change_type == LineChangeType::Removed {
+                i += 1;
+            }
+            let rem_end = i;
+
+            let add_start = i;
+            while i < lines.len() && lines[i].change_type == LineChangeType::Added {
+                i += 1;
+            }
+            let add_end = i;
+
+            let n_pairs = (rem_end - rem_start).min(add_end - add_start);
+            if n_pairs > 0 {
+                let pairs: Vec<(String, String)> = (0..n_pairs)
+                    .map(|k| {
+                        (
+                            lines[rem_start + k].content.clone(),
+                            lines[add_start + k].content.clone(),
+                        )
+                    })
+                    .collect();
+                for (k, (rem_content, add_content)) in pairs.iter().enumerate() {
+                    let (rw, aw) = compute_word_changes(rem_content, add_content);
+                    lines[rem_start + k].word_changes = rw;
+                    lines[add_start + k].word_changes = aw;
+                }
+            }
+
+            if rem_end == rem_start && add_end == add_start {
+                i += 1;
+            }
+        }
+    }
 }
 
 impl Default for DiffParser {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn tokenize(s: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<(usize, char)> = s.char_indices().collect();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let (byte_start, c) = chars[i];
+        if c.is_alphanumeric() || c == '_' {
+            let mut j = i + 1;
+            while j < chars.len() && (chars[j].1.is_alphanumeric() || chars[j].1 == '_') {
+                j += 1;
+            }
+            let byte_end = if j < chars.len() { chars[j].0 } else { s.len() };
+            tokens.push((byte_start, byte_end));
+            i = j;
+        } else if c.is_whitespace() {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j].1.is_whitespace() {
+                j += 1;
+            }
+            let byte_end = if j < chars.len() { chars[j].0 } else { s.len() };
+            tokens.push((byte_start, byte_end));
+            i = j;
+        } else {
+            let byte_end = if i + 1 < chars.len() { chars[i + 1].0 } else { s.len() };
+            tokens.push((byte_start, byte_end));
+            i += 1;
+        }
+    }
+    tokens
+}
+
+fn lcs_matched(a: &[&str], b: &[&str]) -> (HashSet<usize>, HashSet<usize>) {
+    let m = a.len();
+    let n = b.len();
+    if m > 200 || n > 200 {
+        return (HashSet::new(), HashSet::new());
+    }
+    let mut dp = vec![vec![0u16; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if a[i - 1] == b[j - 1] {
+                dp[i - 1][j - 1] + 1
+            } else {
+                dp[i - 1][j].max(dp[i][j - 1])
+            };
+        }
+    }
+    let mut a_matched = HashSet::new();
+    let mut b_matched = HashSet::new();
+    let (mut i, mut j) = (m, n);
+    while i > 0 && j > 0 {
+        if a[i - 1] == b[j - 1] {
+            a_matched.insert(i - 1);
+            b_matched.insert(j - 1);
+            i -= 1;
+            j -= 1;
+        } else if dp[i - 1][j] >= dp[i][j - 1] {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+    (a_matched, b_matched)
+}
+
+pub fn compute_word_changes(removed: &str, added: &str) -> (Vec<WordChange>, Vec<WordChange>) {
+    let rem_tok = tokenize(removed);
+    let add_tok = tokenize(added);
+    let rem_strs: Vec<&str> = rem_tok.iter().map(|&(s, e)| &removed[s..e]).collect();
+    let add_strs: Vec<&str> = add_tok.iter().map(|&(s, e)| &added[s..e]).collect();
+    let (rem_matched, add_matched) = lcs_matched(&rem_strs, &add_strs);
+    let rem_changes = rem_tok
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !rem_matched.contains(i))
+        .map(|(_, &(s, e))| WordChange { start: s, end: e, change_type: WordChangeType::Removed })
+        .collect();
+    let add_changes = add_tok
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| !add_matched.contains(j))
+        .map(|(_, &(s, e))| WordChange { start: s, end: e, change_type: WordChangeType::Added })
+        .collect();
+    (rem_changes, add_changes)
 }
 
 #[cfg(test)]
