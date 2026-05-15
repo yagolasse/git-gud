@@ -76,7 +76,7 @@ impl VirtualScrollState {
             let end_idx =
                 ((self.scroll_offset + viewport_height) / item_height).ceil() as usize + 1;
 
-            self.visible_range = start_idx.max(0)..end_idx.min(self.total_items);
+            self.visible_range = start_idx..end_idx.min(self.total_items);
         } else {
             // Variable height items
             self.calculate_variable_visible_range();
