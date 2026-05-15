@@ -249,6 +249,19 @@ impl EnhancedDiffViewer {
             ui.painter().rect_filled(gear_rect, 4.0, p.bg_secondary);
         }
         paint_gear(ui.painter(), gear_rect.center(), if gear_resp.hovered() { p.text_primary } else { p.text_secondary });
+
+        let popup_id = ui.make_persistent_id("diff_settings_popup");
+        if gear_resp.clicked() {
+            ui.memory_mut(|m| m.toggle_popup(popup_id));
+        }
+        egui::popup_below_widget(ui, popup_id, &gear_resp, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+            ui.set_min_width(160.0);
+            ui.add(egui::Slider::new(&mut self.config.context_lines, 1..=10).text("Context lines"));
+            ui.checkbox(&mut self.config.ignore_whitespace, "Ignore whitespace");
+            ui.checkbox(&mut self.config.show_line_numbers, "Show line numbers");
+            ui.checkbox(&mut self.config.wrap_lines, "Wrap lines");
+            ui.checkbox(&mut self.config.syntax_highlighting, "Syntax highlighting");
+        });
     }
 
     fn show_unified_view(&mut self, ui: &mut egui::Ui, p: &'static Palette, file_path: &std::path::Path) -> Option<crate::state::PendingAction> {

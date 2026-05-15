@@ -99,6 +99,8 @@ impl Toolbar {
             };
 
         let (fetch_r, fetch_clk) = self.ghost_btn(ui, p, x, cy, "Fetch", false, fetch_running, "btn_fetch");
+        ui.interact(fetch_r, ui.id().with("btn_fetch_hover"), egui::Sense::hover())
+            .on_hover_text("Ctrl+Shift+F");
         x = fetch_r.max.x + 4.0;
         if fetch_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Fetch);
@@ -108,6 +110,8 @@ impl Toolbar {
         }
 
         let (pull_r, pull_clk) = self.ghost_btn(ui, p, x, cy, "Pull", false, pull_running, "btn_pull");
+        ui.interact(pull_r, ui.id().with("btn_pull_hover"), egui::Sense::hover())
+            .on_hover_text("Ctrl+Shift+L");
         x = pull_r.max.x + 4.0;
         if pull_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Pull);
@@ -117,6 +121,8 @@ impl Toolbar {
         }
 
         let (push_r, push_clk) = self.ghost_btn(ui, p, x, cy, "Push", false, push_running, "btn_push");
+        ui.interact(push_r, ui.id().with("btn_push_hover"), egui::Sense::hover())
+            .on_hover_text("Ctrl+Shift+P");
         x = push_r.max.x + 4.0;
         if push_clk && state.has_repository() {
             state.ui_state.pending_action = Some(crate::state::PendingAction::Push);
@@ -132,12 +138,16 @@ impl Toolbar {
         x = self.vsep(ui, p, x, cy);
 
         let (nb_r, nb_clk) = self.ghost_btn(ui, p, x, cy, "New branch", false, false, "btn_newbranch");
+        ui.interact(nb_r, ui.id().with("btn_newbranch_hover"), egui::Sense::hover())
+            .on_hover_text("Create a new branch");
         x = nb_r.max.x + 4.0;
         if nb_clk && state.has_repository() {
             state.ui_state.show_create_branch_dialog = true;
         }
 
         let (st_r, st_clk) = self.ghost_btn(ui, p, x, cy, "Stash", false, false, "btn_stash");
+        ui.interact(st_r, ui.id().with("btn_stash_hover"), egui::Sense::hover())
+            .on_hover_text("Stash working directory changes");
         x = st_r.max.x + 4.0;
         if st_clk && state.has_repository() {
             state.ui_state.show_stash_save_dialog = true;

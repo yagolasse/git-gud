@@ -280,6 +280,13 @@ impl RepositoryState {
         Ok(())
     }
 
+    /// Apply a stash entry without removing it
+    pub fn stash_apply(&mut self, index: usize) -> anyhow::Result<()> {
+        services::GitService::stash_apply(&mut self.repository, index)?;
+        self.refresh()?;
+        Ok(())
+    }
+
     /// Remove a stash entry without applying it
     pub fn stash_drop(&mut self, index: usize) -> anyhow::Result<()> {
         services::GitService::stash_drop(&mut self.repository, index)?;

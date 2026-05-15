@@ -185,10 +185,19 @@ impl FileList {
         let mut action_clicked = false;
         if let Some(label) = action_label
             && response.hovered() {
-                let action_char = if label.contains("Stage") { "+" } else { "-" };
+                let text_w = ui.fonts(|f| {
+                    f.layout_no_wrap(
+                        label.to_string(),
+                        egui::FontId::proportional(10.0),
+                        p.text_secondary,
+                    )
+                    .size()
+                    .x
+                });
+                let btn_w = text_w + 10.0;
                 let btn_rect = egui::Rect::from_min_size(
-                    egui::pos2(rect.max.x - 22.0, rect.min.y + 3.0),
-                    egui::vec2(18.0, 18.0),
+                    egui::pos2(rect.max.x - btn_w - 4.0, rect.min.y + 3.0),
+                    egui::vec2(btn_w, 18.0),
                 );
                 let btn_id = ui.id().with(title).with("action");
                 let btn = ui.interact(btn_rect, btn_id, egui::Sense::click());
@@ -200,8 +209,8 @@ impl FileList {
                     ui.painter().text(
                         btn_rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        action_char,
-                        egui::FontId::proportional(13.0),
+                        label,
+                        egui::FontId::proportional(10.0),
                         p.text_secondary,
                     );
                 }

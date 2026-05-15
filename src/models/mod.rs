@@ -33,6 +33,10 @@ pub struct Branch {
     pub is_remote: bool,
     pub is_current: bool,
     pub commit_id: String,
+    #[serde(default)]
+    pub ahead: u32,
+    #[serde(default)]
+    pub behind: u32,
 }
 
 /// File status in working directory
@@ -141,6 +145,8 @@ mod tests {
             is_remote: false,
             is_current: true,
             commit_id: "def456".to_string(),
+            ahead: 2,
+            behind: 1,
         };
 
         let json = serde_json::to_string(&branch).unwrap();
@@ -150,6 +156,8 @@ mod tests {
         assert_eq!(branch.is_remote, deserialized.is_remote);
         assert_eq!(branch.is_current, deserialized.is_current);
         assert_eq!(branch.commit_id, deserialized.commit_id);
+        assert_eq!(branch.ahead, deserialized.ahead);
+        assert_eq!(branch.behind, deserialized.behind);
     }
 
     #[test]

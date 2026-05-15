@@ -463,13 +463,16 @@ fn draw_graph_cell(
     let top_y = rect.min.y;
     let bot_y = rect.max.y;
 
-    // Vertical connectors for lanes passing through (not this row's dot lane)
+    // Vertical connectors for lanes passing through (not this row's dot lane).
+    // Split around the dot's y-range so pass-through lines don't cross the dot.
+    let dot_y = mid_y;
+    let gap_top = dot_y - DOT_RADIUS - 1.0;
+    let gap_bot = dot_y + DOT_RADIUS + 1.0;
     for &(lane, color_idx) in &row.continuing {
         let x = cx(lane);
-        painter.line_segment(
-            [Pos2::new(x, top_y), Pos2::new(x, bot_y)],
-            Stroke::new(1.5, lane_color(color_idx)),
-        );
+        let stroke = Stroke::new(1.5, lane_color(color_idx));
+        painter.line_segment([Pos2::new(x, top_y), Pos2::new(x, gap_top)], stroke);
+        painter.line_segment([Pos2::new(x, gap_bot), Pos2::new(x, bot_y)], stroke);
     }
 
     // Line from top to dot for this lane (if not first row)

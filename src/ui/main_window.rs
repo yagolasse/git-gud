@@ -157,7 +157,27 @@ impl MainWindow {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open Repository...").clicked() {
-                        self.show_open_dialog = true;
+                        if let Some(path) = crate::ui::FileDialog::open_directory() {
+                            match state.load_repository(path.clone()) {
+                                Ok(_) => {
+                                    self.show_open_dialog = false;
+                                    state.clear_error();
+                                    self.recent_repos.add(&path);
+                                    if let Err(e) = self.recent_repos.save_default() {
+                                        log::error!("Failed to save recent repos: {}", e);
+                                    }
+                                    if let Err(e) = self.file_watcher.start_watching(&path) {
+                                        log::error!("Failed to start file watcher: {}", e);
+                                        state.set_error(format!("Auto-refresh disabled: {}", e));
+                                    } else {
+                                        log::info!("File watcher started for repository");
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to load repository: {}", e);
+                                }
+                            }
+                        }
                         ui.close_menu();
                     }
                     if state.has_repository() {
@@ -172,6 +192,28 @@ impl MainWindow {
                         }
                     } else {
                         ui.add_enabled(false, egui::Button::new("Close Repository"));
+                    }
+                    if ui.button("New Repository...").clicked() {
+                        if let Some(path) = crate::ui::FileDialog::open_directory() {
+                            match crate::services::GitService::init_repository(&path) {
+                                Ok(_) => match state.load_repository(path.clone()) {
+                                    Ok(_) => {
+                                        self.show_open_dialog = false;
+                                        state.clear_error();
+                                        self.recent_repos.add(&path);
+                                        if let Err(e) = self.recent_repos.save_default() {
+                                            log::error!("Failed to save recent repos: {}", e);
+                                        }
+                                        if let Err(e) = self.file_watcher.start_watching(&path) {
+                                            log::error!("Failed to start file watcher: {}", e);
+                                        }
+                                    }
+                                    Err(e) => state.set_error(format!("Failed to load new repo: {}", e)),
+                                },
+                                Err(e) => state.set_error(format!("Init failed: {}", e)),
+                            }
+                        }
+                        ui.close_menu();
                     }
                     ui.separator();
                     if ui.button("Exit").clicked() {

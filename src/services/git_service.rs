@@ -7,6 +7,8 @@ use anyhow::{Result, anyhow};
 use git2::{BranchType, Commit, DiffOptions, ErrorCode, Repository, Status, StatusOptions};
 use std::path::{Path, PathBuf};
 
+const MAX_DIFF_LINES: usize = 5_000;
+
 /// Git service for performing Git operations
 pub struct GitService;
 
@@ -158,11 +160,26 @@ impl GitService {
                 .map(|c| c.id().to_string())
                 .unwrap_or_else(|_| "".to_string());
 
+            let (ahead, behind) = if branch_type == BranchType::Local {
+                branch.upstream().ok()
+                    .and_then(|upstream| {
+                        let local_oid = branch.get().peel_to_commit().ok()?.id();
+                        let upstream_oid = upstream.get().peel_to_commit().ok()?.id();
+                        repo.graph_ahead_behind(local_oid, upstream_oid).ok()
+                    })
+                    .map(|(a, b)| (a as u32, b as u32))
+                    .unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            };
+
             branches.push(models::Branch {
                 name,
                 is_remote: branch_type == BranchType::Remote,
                 is_current,
                 commit_id,
+                ahead,
+                behind,
             });
         }
 
@@ -509,6 +526,13 @@ impl GitService {
             }
         }
 
+        let lines: Vec<&str> = diff_text.lines().collect();
+        let diff_text = if lines.len() > MAX_DIFF_LINES {
+            format!("@@ File too large — showing first {} lines @@\n{}", MAX_DIFF_LINES, lines[..MAX_DIFF_LINES].join("\n"))
+        } else {
+            diff_text
+        };
+
         log::debug!("Generated diff ({} bytes)", diff_text.len());
         Ok(diff_text)
     }
@@ -574,9 +598,29 @@ impl GitService {
 
     /// Apply the stash at `index` and remove it from the stash list
     pub fn stash_pop(repo: &mut Repository, index: usize) -> Result<()> {
-        repo.stash_pop(index, None)
-            .map_err(|e| anyhow!("Failed to pop stash {}: {}", index, e))?;
-        log::info!("Stash {} popped", index);
+        match repo.stash_pop(index, None) {
+            Ok(()) => {
+                log::info!("Stash {} popped", index);
+                Ok(())
+            }
+            Err(e) => {
+                let msg = e.message().to_lowercase();
+                if msg.contains("conflict") {
+                    // Apply without dropping so the stash is preserved
+                    let _ = repo.stash_apply(index, None);
+                    Err(anyhow!("Stash applied with conflicts — stash kept at index {}. Resolve conflicts then drop the stash manually.", index))
+                } else {
+                    Err(anyhow!("Failed to pop stash {}: {}", index, e))
+                }
+            }
+        }
+    }
+
+    /// Apply a stash entry without removing it from the stash list
+    pub fn stash_apply(repo: &mut Repository, index: usize) -> Result<()> {
+        repo.stash_apply(index, None)
+            .map_err(|e| anyhow!("Failed to apply stash {}: {}", index, e))?;
+        log::info!("Stash {} applied (kept)", index);
         Ok(())
     }
 
