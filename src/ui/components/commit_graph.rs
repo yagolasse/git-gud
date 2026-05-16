@@ -499,15 +499,13 @@ impl CommitGraph {
                         }
                     });
                 });
-            if do_create {
-                if let Some(commit_id) = self.create_branch_commit.take() {
-                    let name = self.create_branch_name.trim().to_string();
-                    let checkout = self.create_branch_checkout;
-                    self.create_branch_name.clear();
-                    match state.repository_state_mut().create_branch_at(&name, &commit_id, checkout) {
-                        Ok(()) => state.set_info(format!("Branch '{}' created", name)),
-                        Err(e) => state.set_error(format!("Failed to create branch: {}", e)),
-                    }
+            if do_create && let Some(commit_id) = self.create_branch_commit.take() {
+                let name = self.create_branch_name.trim().to_string();
+                let checkout = self.create_branch_checkout;
+                self.create_branch_name.clear();
+                match state.repository_state_mut().create_branch_at(&name, &commit_id, checkout) {
+                    Ok(()) => state.set_info(format!("Branch '{}' created", name)),
+                    Err(e) => state.set_error(format!("Failed to create branch: {}", e)),
                 }
             }
             if do_cancel {

@@ -172,40 +172,38 @@ impl FileList {
                             if multi == MultiAction::Discard {
                                 multi_discard = Some(state.ui_state.selection.iter().cloned().collect());
                             }
-                            if ignore {
-                                if let Some(rs) = state.repository_state.as_ref() {
-                                    if let Some(workdir) = rs.repository.workdir() {
-                                        let gitignore_path = workdir.join(".gitignore");
-                                        let entry = file.path.to_string_lossy().replace('\\', "/");
-                                        let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-                                        if existing.lines().any(|l| l.trim() == entry.as_str()) {
-                                            state.set_info(format!("'{}' is already in .gitignore", entry));
-                                        } else {
-                                            let to_append = if existing.ends_with('\n') || existing.is_empty() {
-                                                format!("{}\n", entry)
-                                            } else {
-                                                format!("\n{}\n", entry)
-                                            };
-                                            match std::fs::OpenOptions::new().append(true).create(true).open(&gitignore_path)
-                                                .and_then(|mut f| { use std::io::Write; f.write_all(to_append.as_bytes()) })
-                                            {
-                                                Ok(()) => state.set_info(format!("Added '{}' to .gitignore", entry)),
-                                                Err(e) => state.set_error(format!("Failed to update .gitignore: {}", e)),
-                                            }
-                                        }
+                            if ignore
+                                && let Some(rs) = state.repository_state.as_ref()
+                                && let Some(workdir) = rs.repository.workdir()
+                            {
+                                let gitignore_path = workdir.join(".gitignore");
+                                let entry = file.path.to_string_lossy().replace('\\', "/");
+                                let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+                                if existing.lines().any(|l| l.trim() == entry.as_str()) {
+                                    state.set_info(format!("'{}' is already in .gitignore", entry));
+                                } else {
+                                    let to_append = if existing.ends_with('\n') || existing.is_empty() {
+                                        format!("{}\n", entry)
+                                    } else {
+                                        format!("\n{}\n", entry)
+                                    };
+                                    match std::fs::OpenOptions::new().append(true).create(true).open(&gitignore_path)
+                                        .and_then(|mut f| { use std::io::Write; f.write_all(to_append.as_bytes()) })
+                                    {
+                                        Ok(()) => state.set_info(format!("Added '{}' to .gitignore", entry)),
+                                        Err(e) => state.set_error(format!("Failed to update .gitignore: {}", e)),
                                     }
                                 }
                             }
-                            if explore {
-                                if let Some(rs) = state.repository_state.as_ref() {
-                                    if let Some(workdir) = rs.repository.workdir() {
-                                        let file_dir = workdir.join(&file.path)
-                                            .parent()
-                                            .unwrap_or(workdir)
-                                            .to_path_buf();
-                                        open_in_explorer(&file_dir);
-                                    }
-                                }
+                            if explore
+                                && let Some(rs) = state.repository_state.as_ref()
+                                && let Some(workdir) = rs.repository.workdir()
+                            {
+                                let file_dir = workdir.join(&file.path)
+                                    .parent()
+                                    .unwrap_or(workdir)
+                                    .to_path_buf();
+                                open_in_explorer(&file_dir);
                             }
                         }
                     }
